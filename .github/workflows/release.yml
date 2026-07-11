@@ -33,7 +33,7 @@ jobs:
         run: npm run typecheck
 
       - name: Build release files
-        run: npm run dist
+        run: npm run dist -- --publish never
 
       - name: Publish complete GitHub Release
         uses: softprops/action-gh-release@v2
