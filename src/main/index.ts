@@ -1,8 +1,34 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, type Tray } from 'electron'
 import { join } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
+import { nextDailyRun, AppScheduler } from './scheduler'
+import { registerIpcHandlers, type IpcDependencies } from './ipc'
+import { createAppTray } from './tray'
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
+
+const runtime: IpcDependencies = {
+  async getDashboard() {
+    return {
+      lastRunAt: null,
+      nextRunAt: nextDailyRun(new Date()).toISOString(),
+      creators: 0,
+      newWorks: 0,
+      analyzedWorks: 0,
+      highlights: []
+    }
+  },
+  async runNow() {
+    return { accepted: false, reason: '请先完成抖音登录和 AI 模型设置' }
+  }
+}
+
+const scheduler = new AppScheduler(
+  async () => { await runtime.runNow() },
+  async () => { await runtime.runNow() }
+)
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -22,6 +48,11 @@ function createMainWindow(): BrowserWindow {
   })
 
   window.once('ready-to-show', () => window.show())
+  window.on('close', (event) => {
+    if (isQuitting) return
+    event.preventDefault()
+    window.hide()
+  })
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) void shell.openExternal(url)
     return { action: 'deny' }
@@ -38,13 +69,29 @@ function createMainWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   app.setName(APP_METADATA.productName)
+  registerIpcHandlers(runtime)
   mainWindow = createMainWindow()
+  tray = createAppTray({
+    showWindow: () => {
+      if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
+      mainWindow.show()
+      mainWindow.focus()
+    },
+    runNow: () => { void runtime.runNow() },
+    quit: () => {
+      isQuitting = true
+      app.quit()
+    }
+  })
+  scheduler.start(null)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow()
   })
 })
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+app.on('before-quit', () => {
+  isQuitting = true
+  scheduler.stop()
+  tray?.destroy()
 })
