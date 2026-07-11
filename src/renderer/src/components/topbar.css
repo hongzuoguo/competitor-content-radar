@@ -13,6 +13,15 @@
   align-items: center;
 }
 
+.update-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .topbar__status {
   gap: 14px;
 }
