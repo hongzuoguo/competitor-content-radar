@@ -21,6 +21,7 @@ export interface Work {
   title: string
   publishedAt: string
   originalUrl: string
+  downloadUrl?: string | null
   metrics: EngagementMetrics
 }
 

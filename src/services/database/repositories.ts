@@ -48,6 +48,7 @@ function mapWork(row: Record<string, unknown>): Work {
     title: String(row.title),
     publishedAt: String(row.published_at),
     originalUrl: String(row.original_url),
+    downloadUrl: row.download_url ? String(row.download_url) : null,
     metrics: {
       likes: Number(row.likes),
       comments: Number(row.comments),
@@ -85,21 +86,22 @@ class WorkRepository {
     this.database
       .prepare(
         `INSERT INTO works (
-          id, creator_id, platform_work_id, title, published_at, original_url,
+          id, creator_id, platform_work_id, title, published_at, original_url, download_url,
           likes, comments, shares, collects
         ) VALUES (
-          @id, @creatorId, @platformWorkId, @title, @publishedAt, @originalUrl,
+          @id, @creatorId, @platformWorkId, @title, @publishedAt, @originalUrl, @downloadUrl,
           @likes, @comments, @shares, @collects
         )
         ON CONFLICT(platform_work_id) DO UPDATE SET
           title = excluded.title,
           original_url = excluded.original_url,
+          download_url = excluded.download_url,
           likes = excluded.likes,
           comments = excluded.comments,
           shares = excluded.shares,
           collects = excluded.collects`
       )
-      .run({ ...work, ...work.metrics })
+      .run({ ...work, downloadUrl: work.downloadUrl ?? null, ...work.metrics })
 
     const row = this.database
       .prepare('SELECT * FROM works WHERE platform_work_id = ?')

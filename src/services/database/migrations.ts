@@ -16,6 +16,7 @@ export const MIGRATIONS = [
       title TEXT NOT NULL,
       published_at TEXT NOT NULL,
       original_url TEXT NOT NULL,
+      download_url TEXT,
       likes INTEGER NOT NULL DEFAULT 0,
       comments INTEGER NOT NULL DEFAULT 0,
       shares INTEGER NOT NULL DEFAULT 0,
