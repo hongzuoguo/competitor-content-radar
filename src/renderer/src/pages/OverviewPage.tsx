@@ -53,7 +53,7 @@ export function OverviewPage({
       <div className="page">
         <header className="page-heading"><div><h1>今日总览</h1><p>每天先看结论，再决定哪些内容值得深入研究。</p></div></header>
         <EmptyState
-          action={<Button icon={<Plus size={16} />}>添加第一个博主</Button>}
+          action={<Button icon={<Plus size={16} />} onClick={() => { window.location.hash = '#/setup' }}>添加第一个博主</Button>}
           description="添加第一个博主后，应用会采集近 30 条作品作为基线，并分析最近 120 小时的新内容。"
           title="还没有监控博主"
         />
