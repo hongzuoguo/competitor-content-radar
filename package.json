@@ -1,6 +1,6 @@
 {
   "name": "competitor-content-radar",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "private": true,
   "description": "抖音对标内容自动分析桌面工作台",
   "main": "./out/main/index.js",
@@ -12,8 +12,9 @@
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
-    "dist": "npm run build && electron-builder --win nsis --x64",
-    "dist:dir": "npm run build && electron-builder --win dir --x64"
+    "rebuild:electron": "electron-rebuild -v 43.1.0 -f --build-from-source -w better-sqlite3",
+    "dist": "npm run build && npm run rebuild:electron && electron-builder --win nsis --x64",
+    "dist:dir": "npm run build && npm run rebuild:electron && electron-builder --win dir --x64"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
@@ -29,6 +30,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@types/better-sqlite3": "^7.6.13",
@@ -48,6 +50,7 @@
     "appId": "com.contentradar.desktop",
     "productName": "对标内容雷达",
     "asar": true,
+    "npmRebuild": false,
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
       "node_modules/ffmpeg-static/**/*",

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 describe('GitHub release configuration', () => {
   it('publishes stable updates to the public project', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts: Record<string, string>
       build: { publish?: Array<Record<string, string>> }
     }
     expect(packageJson.build.publish).toEqual([{
@@ -11,6 +12,9 @@ describe('GitHub release configuration', () => {
     }])
     expect((packageJson.build as { win?: { artifactName?: string } }).win?.artifactName)
       .toBe('competitor-content-radar-setup-${version}.${ext}')
+    expect(packageJson.scripts['rebuild:electron']).toContain('electron-rebuild -v 43.1.0 -f --build-from-source -w better-sqlite3')
+    expect(packageJson.scripts.dist).toContain('npm run rebuild:electron')
+    expect((packageJson.build as { npmRebuild?: boolean }).npmRebuild).toBe(false)
   })
 
   it('runs the release workflow only for version tags', () => {
