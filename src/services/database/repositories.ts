@@ -138,7 +138,7 @@ class JobRepository {
   }
 }
 
-class SettingsRepository {
+export class SettingsRepository {
   constructor(private readonly database: Database.Database) {}
 
   set(key: string, value: unknown): void {

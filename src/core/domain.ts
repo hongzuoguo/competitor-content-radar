@@ -24,15 +24,4 @@ export interface Work {
   metrics: EngagementMetrics
 }
 
-export interface ContentAnalysis {
-  topicAngle: string
-  openingHook: string
-  structure: string[]
-  viralPoints: string[]
-  interactionGuidance: string
-  highlights: string[]
-  reusablePatterns: string[]
-  differentiatedSuggestions: string[]
-  referenceValueScore: number
-  referenceValueReason: string
-}
+export type { AnalysisResult as ContentAnalysis } from '../services/ai/analysis-schema'
