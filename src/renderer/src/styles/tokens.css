@@ -1,0 +1,33 @@
+:root {
+  --color-primary: oklch(0.487 0.076 202.2);
+  --color-primary-hover: oklch(0.431 0.068 201.9);
+  --color-primary-soft: oklch(0.94 0.025 202.2);
+  --color-accent: oklch(0.73 0.134 76.5);
+  --color-accent-soft: oklch(0.95 0.035 76.5);
+  --color-bg: oklch(1 0 0);
+  --color-surface: oklch(0.975 0.002 197.1);
+  --color-surface-strong: oklch(0.945 0.005 197.1);
+  --color-ink: oklch(0.239 0.015 218.1);
+  --color-muted: oklch(0.518 0.016 213.2);
+  --color-border: oklch(0.91 0.008 197);
+  --color-success: oklch(0.531 0.095 161.9);
+  --color-success-soft: oklch(0.95 0.025 161.9);
+  --color-warning: oklch(0.611 0.127 61.4);
+  --color-warning-soft: oklch(0.95 0.035 61.4);
+  --color-danger: oklch(0.548 0.165 21);
+  --color-danger-soft: oklch(0.95 0.035 21);
+  --font-ui: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --shadow-overlay: 0 12px 32px oklch(0.239 0.015 218.1 / 0.12);
+  --duration-fast: 160ms;
+  --duration-normal: 220ms;
+}

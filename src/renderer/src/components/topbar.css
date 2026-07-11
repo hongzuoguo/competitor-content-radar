@@ -1,0 +1,24 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 32px;
+  background: var(--color-bg);
+}
+
+.topbar__status,
+.topbar__next {
+  display: flex;
+  align-items: center;
+}
+
+.topbar__status {
+  gap: 14px;
+}
+
+.topbar__next {
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
