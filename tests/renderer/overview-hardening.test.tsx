@@ -49,7 +49,9 @@ describe('overview trust and interaction hardening', () => {
     render(<OverviewPage data={data} />)
     expect(screen.getByText('238%')).toBeInTheDocument()
     expect(screen.getByText('91/100')).toBeInTheDocument()
-    expect(screen.getByText(/\d{2}:\d{2}/)).toBeInTheDocument()
+    expect(screen.getByText((_text, element) =>
+      element?.classList.contains('highlight-row__creator') === true && /\d{2}:\d{2}/.test(element.textContent ?? '')
+    )).toBeInTheDocument()
   })
 
   it('refreshes with a loading state and announces completion', async () => {
