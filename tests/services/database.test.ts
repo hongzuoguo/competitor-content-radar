@@ -60,6 +60,31 @@ describe('SQLite repositories', () => {
     rmSync(directory, { recursive: true, force: true })
   })
 
+  it('rolls back a v1 migration when foreign key violations exist', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'content-radar-invalid-'))
+    const path = join(directory, 'radar.sqlite')
+    const legacy = new Database(path)
+    legacy.exec(MIGRATIONS[0])
+    legacy.pragma('user_version = 1')
+    legacy.pragma('foreign_keys = OFF')
+    legacy.prepare(`INSERT INTO metric_snapshots VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      'orphan-snapshot', 'missing-work', '2026-07-11T01:00:00.000Z', 1, 2, 3, 4
+    )
+    legacy.close()
+
+    expect(() => new AppDatabase(path)).toThrow('foreign key check')
+
+    const rolledBack = new Database(path)
+    expect(rolledBack.pragma('user_version', { simple: true })).toBe(1)
+    const workColumns = rolledBack.pragma('table_info(works)') as Array<{ name: string }>
+    expect(workColumns.some((column) => column.name === 'source_type')).toBe(false)
+    expect(rolledBack.prepare('SELECT work_id FROM metric_snapshots').all()).toEqual([
+      { work_id: 'missing-work' }
+    ])
+    rolledBack.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+
   it('stores creators and prevents duplicate profile URLs', () => {
     const creator = repositories.creators.create({
       id: 'creator-1',

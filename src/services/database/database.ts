@@ -19,7 +19,12 @@ export class AppDatabase {
 
     this.connection.pragma('foreign_keys = ON')
     this.connection.pragma('journal_mode = WAL')
-    this.migrate()
+    try {
+      this.migrate()
+    } catch (error) {
+      this.close()
+      throw error
+    }
   }
 
   get schemaVersion(): number {
@@ -38,13 +43,12 @@ export class AppDatabase {
           this.connection.exec(MIGRATIONS[index])
           this.connection.pragma(`user_version = ${index + 1}`)
         }
+        const violations = this.connection.pragma('foreign_key_check') as unknown[]
+        if (violations.length > 0) throw new Error('Database migration failed foreign key check')
       })()
     } finally {
       if (foreignKeysEnabled) this.connection.pragma('foreign_keys = ON')
     }
-
-    const violations = this.connection.pragma('foreign_key_check') as unknown[]
-    if (violations.length > 0) throw new Error('Database migration failed foreign key check')
   }
 
   close(): void {

@@ -62,7 +62,7 @@ export function normalizeDouyinWork(
 
 export function deduplicateWorks(works: readonly Work[]): Work[] {
   const byPlatformId = new Map<string, Work>()
-  for (const work of works) byPlatformId.set(work.sourceKey, work)
+  for (const work of works) byPlatformId.set(`${work.sourceType}\0${work.sourceKey}`, work)
   return [...byPlatformId.values()]
 }
 

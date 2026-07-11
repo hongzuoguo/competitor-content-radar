@@ -63,4 +63,15 @@ describe('Douyin metadata normalization', () => {
     const second = { ...first, title: '新标题' }
     expect(deduplicateWorks([first, second])).toEqual([second])
   })
+
+  it('deduplicates by source type and source key together', () => {
+    const monitored = normalizeDouyinWork('creator-1', { aweme_id: '1' })
+    const urlImport = { ...monitored, id: 'url:1', sourceType: 'douyin_url' as const }
+    const updatedImport = { ...urlImport, title: 'Updated import' }
+
+    expect(deduplicateWorks([monitored, urlImport, updatedImport])).toEqual([
+      monitored,
+      updatedImport
+    ])
+  })
 })
