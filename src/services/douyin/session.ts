@@ -2,6 +2,7 @@ import { BrowserWindow, session, type Debugger } from 'electron'
 import type { Work } from '../../core/domain'
 import { extractWorksFromPayload } from './discovery'
 import { deduplicateWorks, normalizeCreatorUrl } from './normalizers'
+import { withTimeout } from '../pipeline/timeout'
 
 const PARTITION = 'persist:douyin-monitor'
 
@@ -60,7 +61,14 @@ export class DouyinBrowserSession {
       }
       debuggerClient.on('message', onMessage)
 
-      await window.loadURL(url)
+      await withTimeout(
+        window.loadURL(url),
+        30_000,
+        Object.assign(new Error('抖音主页加载超时，请检查网络或重新登录抖音'), {
+          code: 'DOUYIN_LOAD_TIMEOUT',
+          retryable: true
+        })
+      )
       await wait(8_000)
       const bodyText = await window.webContents.executeJavaScript(
         'document.body?.innerText?.slice(0, 4000) ?? ""',

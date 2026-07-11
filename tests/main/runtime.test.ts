@@ -38,7 +38,7 @@ describe('desktop runtime assembly', () => {
     await runtime.saveSettings({ providerId: 'qwen', modelId: 'qwen3.7-plus' })
 
     expect(await runtime.runNow()).toEqual({ accepted: true })
-    expect(processWork).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(processWork).toHaveBeenCalledTimes(1))
     const dashboard = await runtime.getDashboard()
     expect(dashboard.newWorks).toBe(1)
     expect(dashboard.analyzedWorks).toBe(1)
@@ -58,10 +58,26 @@ describe('desktop runtime assembly', () => {
 
     expect(runtime.isBusinessIdle()).toBe(true)
     const run = runtime.runNow()
+    await expect(run).resolves.toEqual({ accepted: true })
     expect(runtime.isBusinessIdle()).toBe(false)
+    expect((await runtime.getDashboard()).run.status).toBe('running')
     finishDiscovery([])
-    await run
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
     expect(runtime.isBusinessIdle()).toBe(true)
     expect(becameIdle).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the stage and failure of a background run', async () => {
+    const report = vi.fn()
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn().mockRejectedValue(new Error('采集失败')),
+      processWork: vi.fn(), login: vi.fn(), report
+    })
+    await runtime.addCreator('https://www.douyin.com/user/log-check')
+    await runtime.saveSettings({ providerId: 'deepseek', modelId: 'deepseek-chat' })
+
+    await runtime.runNow()
+    await vi.waitFor(() => expect(report).toHaveBeenCalledWith('error', '运行失败', expect.any(Error)))
+    expect(report).toHaveBeenCalledWith('info', '开始采集博主', expect.objectContaining({ profileUrl: expect.any(String) }))
   })
 })

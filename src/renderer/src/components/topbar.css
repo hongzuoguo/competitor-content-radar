@@ -13,6 +13,21 @@
   align-items: center;
 }
 
+.topbar__run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar__run-message {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.topbar__run-message[data-state='rejected'] {
+  color: var(--color-danger, #b42318);
+}
+
 .update-status {
   display: inline-flex;
   align-items: center;

@@ -21,6 +21,7 @@ export interface RuntimePorts {
   processWork(work: Work, settings: PublicSettings): Promise<ProcessedWork>
   login(): Promise<void>
   saveApiKey?(providerId: string, apiKey: string): Promise<void> | void
+  report?(level: 'info' | 'error', message: string, detail?: unknown): void
 }
 
 const EMPTY_STAGES = [
@@ -111,19 +112,29 @@ export class DesktopRuntime {
 
   async runNow(): Promise<{ accepted: boolean; reason?: string }> {
     if (this.running) return { accepted: false, reason: '已有任务正在运行' }
-    this.running = true
-    try {
-      const settings = await this.getSettings()
-      const creators = this.repositories.creators.list().filter((creator) => creator.enabled)
-      if (creators.length === 0) return { accepted: false, reason: '请先添加至少一位博主' }
-      if (!settings.providerId || !settings.modelId) return { accepted: false, reason: '请先完成 AI 模型设置' }
+    const settings = await this.getSettings()
+    const creators = this.repositories.creators.list().filter((creator) => creator.enabled)
+    if (creators.length === 0) return { accepted: false, reason: '请先添加至少一位博主' }
+    if (!settings.providerId || !settings.modelId) return { accepted: false, reason: '请先完成 AI 模型设置' }
 
-      this.runState = {
-        status: 'running', message: '正在采集公开作品，暂时无需操作', requiresAction: false,
-        stages: EMPTY_STAGES.map((stage, index) => ({ ...stage, status: index === 0 ? 'running' as const : 'pending' as const }))
-      }
+    this.running = true
+    this.runState = {
+      status: 'running', message: '正在采集公开作品，暂时无需操作', requiresAction: false,
+      stages: EMPTY_STAGES.map((stage, index) => ({ ...stage, status: index === 0 ? 'running' as const : 'pending' as const }))
+    }
+    void this.executeRun(creators, settings)
+    return { accepted: true }
+  }
+
+  private async executeRun(
+    creators: ReturnType<AppRepositories['creators']['list']>,
+    settings: PublicSettings
+  ): Promise<void> {
+    try {
       for (const creator of creators) {
+        this.ports.report?.('info', '开始采集博主', { creatorId: creator.id, profileUrl: creator.profileUrl })
         const discovered = selectBaselineWorks(await this.ports.discover(creator.id, creator.profileUrl))
+        this.ports.report?.('info', '博主采集完成', { creatorId: creator.id, works: discovered.length })
         for (const work of discovered) {
           this.repositories.works.upsert(work)
           this.repositories.snapshots.create({
@@ -154,13 +165,12 @@ export class DesktopRuntime {
         requiresAction: false,
         stages: EMPTY_STAGES.map((stage) => ({ ...stage, status: stage.id === 'feishu' && !feishuConnected ? 'pending' as const : 'completed' as const }))
       }
-      return { accepted: true }
     } catch (error) {
+      this.ports.report?.('error', '运行失败', error)
       this.runState = {
         status: 'failed', message: error instanceof Error ? error.message : '任务失败', requiresAction: true,
         stages: this.runState.stages
       }
-      throw error
     } finally {
       this.running = false
       for (const listener of this.idleListeners) listener()

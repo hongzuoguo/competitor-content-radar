@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import log from 'electron-log/main'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AppDatabase } from '../services/database/database'
@@ -100,7 +101,8 @@ export function createProductionRuntime(): ProductionRuntime {
     discover: (creatorId, profileUrl) => douyin.captureCreatorWorks(creatorId, profileUrl),
     processWork,
     login: () => douyin.openLoginWindow(),
-    saveApiKey: (providerId, apiKey) => secrets.set(`ai.${providerId}`, apiKey)
+    saveApiKey: (providerId, apiKey) => secrets.set(`ai.${providerId}`, apiKey),
+    report: (level, message, detail) => log[level](message, detail ?? '')
   })
   return { runtime, close: () => database.close() }
 }
