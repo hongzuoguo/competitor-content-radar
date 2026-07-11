@@ -6,6 +6,25 @@ export const OVERVIEW_DEMO_DATA: DashboardData = {
   creators: 6,
   newWorks: 12,
   analyzedWorks: 11,
+  run: {
+    status: 'running',
+    message: '正在拆解最后 1 条作品，预计 1 分钟内完成；暂时无需操作。',
+    requiresAction: false,
+    stages: [
+      { id: 'discovery', label: '采集', status: 'completed' },
+      { id: 'download', label: '下载', status: 'completed' },
+      { id: 'transcription', label: '转写', status: 'completed' },
+      { id: 'analysis', label: 'AI 拆解', status: 'running' },
+      { id: 'feishu', label: '飞书同步', status: 'pending' }
+    ]
+  },
+  services: [
+    { id: 'douyin', label: '抖音登录', status: 'healthy', detail: '会话有效' },
+    { id: 'download', label: '视频下载', status: 'healthy', detail: '内置组件可用' },
+    { id: 'transcription', label: '本地转写', status: 'healthy', detail: '模型已就绪' },
+    { id: 'ai', label: 'AI 拆解', status: 'healthy', detail: '模型连接正常' },
+    { id: 'feishu', label: '飞书同步', status: 'healthy', detail: '授权有效' }
+  ],
   highlights: [
     {
       id: 'preview-1',
@@ -17,7 +36,15 @@ export const OVERVIEW_DEMO_DATA: DashboardData = {
       referenceValueScore: 91,
       reasons: ['absolute_high_likes', 'relative_viral', 'high_reference_value'],
       summary: '用反常识问题切入，再用三个具体错误完成自检式结构。开头承诺清晰，信息密度高，适合迁移到知识类账号。',
-      originalUrl: 'https://www.douyin.com/video/7658'
+      originalUrl: 'https://www.douyin.com/video/7658',
+      analysis: {
+        topicAngle: '从“努力却没结果”的认知冲突切入内容增长问题',
+        openingHook: '为什么你的内容看起来很努力，却没有增长？',
+        structure: '反常识问题 → 三个常见错误 → 自检清单 → 行动建议',
+        reusablePattern: '用结果落差提问，让观众先对号入座，再提供检查步骤',
+        differentiatedSuggestion: '改从“团队内容越做越多，线索却变少”切入，加入自己的真实复盘数据',
+        risk: '不要照搬原案例或直接复述三个错误，需替换为自身业务场景'
+      }
     },
     {
       id: 'preview-2',

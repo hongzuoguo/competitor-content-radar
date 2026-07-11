@@ -7,7 +7,7 @@
 .capacity {
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .creator-form {
@@ -52,7 +52,7 @@
 
 .form-help,
 .form-error {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -82,12 +82,12 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .data-table th {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 620;
   text-align: left;
 }
@@ -134,7 +134,7 @@
 .identity-cell small,
 .work-title small {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .avatar {
@@ -227,7 +227,7 @@
 .segmented button {
   min-height: 32px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   padding: 0 11px;
   color: var(--color-muted);
@@ -284,13 +284,13 @@
 }
 
 .task-summary strong {
-  font-size: 20px;
+  font-size: 24px;
 }
 
 .task-summary span,
 .task-row__label {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .task-list {
@@ -329,7 +329,7 @@
 
 .task-row__identity span {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .settings-layout {
@@ -436,7 +436,7 @@
 .connection-list small,
 .rule-list small {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .rule-list > label {

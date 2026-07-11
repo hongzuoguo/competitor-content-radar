@@ -9,6 +9,21 @@ const populated: DashboardData = {
   creators: 6,
   newWorks: 12,
   analyzedWorks: 11,
+  run: {
+    status: 'running',
+    message: '正在拆解 1 条作品，暂时无需操作',
+    requiresAction: false,
+    stages: [
+      { id: 'discovery', label: '采集', status: 'completed' },
+      { id: 'download', label: '下载', status: 'completed' },
+      { id: 'transcription', label: '转写', status: 'completed' },
+      { id: 'analysis', label: 'AI 拆解', status: 'running' },
+      { id: 'feishu', label: '飞书同步', status: 'pending' }
+    ]
+  },
+  services: [
+    { id: 'douyin', label: '抖音登录', status: 'healthy', detail: '会话有效' }
+  ],
   highlights: [
     {
       id: 'work-1',
@@ -49,6 +64,7 @@ describe('overview workspace', () => {
 
   it('makes partial processing visible instead of claiming full success', () => {
     render(<OverviewPage data={populated} />)
-    expect(screen.getByText('1 条待处理')).toBeInTheDocument()
+    expect(screen.getByText(/正在拆解 1 条作品/)).toBeInTheDocument()
+    expect(screen.getByText('无需操作')).toBeInTheDocument()
   })
 })

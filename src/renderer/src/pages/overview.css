@@ -91,10 +91,10 @@
   border: 1px solid var(--color-border);
   border-radius: 50%;
   background: var(--color-bg);
-  font-size: 11px;
+  font-size: 12px;
 }
 
-.stage-line li[data-state='complete'] span {
+.stage-line li[data-state='completed'] span {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: white;
@@ -142,21 +142,21 @@
 }
 
 .metric-strip__value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 690;
   letter-spacing: -0.035em;
 }
 
 .metric-strip__note {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(270px, 0.7fr);
   gap: 32px;
-  padding-top: 28px;
+  padding-bottom: 28px;
 }
 
 .highlight-section,
@@ -184,7 +184,7 @@
 
 .highlight-row {
   display: grid;
-  grid-template-columns: minmax(280px, 1.5fr) minmax(140px, 0.65fr) minmax(150px, auto) 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, auto) 18px;
   align-items: center;
   gap: 16px;
   width: 100%;
@@ -194,13 +194,12 @@
   padding: 17px 4px;
   text-align: left;
   cursor: pointer;
-  transition: background var(--duration-fast) ease, padding var(--duration-fast) ease;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
 }
 
 .highlight-row:hover,
 .highlight-row:focus-visible {
   background: var(--color-surface);
-  padding-inline: 12px;
 }
 
 .highlight-row__identity,
@@ -212,7 +211,7 @@
 .highlight-row__identity {
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .highlight-row__identity strong {
@@ -224,7 +223,7 @@
 
 .highlight-row__creator {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .highlight-row__reasons {
@@ -238,13 +237,13 @@
   background: var(--color-primary-soft);
   color: var(--color-primary-hover);
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .highlight-row__metrics {
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
@@ -253,6 +252,12 @@
 .highlight-row__metrics span {
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+}
+
+.highlight-row__metrics small {
+  color: var(--color-muted);
+  font-size: 12px;
 }
 
 .highlight-row__arrow {
@@ -296,13 +301,26 @@
 
 .task-health small {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .task-health__ok {
   color: var(--color-success);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 620;
+}
+
+.task-health li[data-status='action_required'] .task-health__icon,
+.task-health li[data-status='unavailable'] .task-health__icon {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.task-health li .button {
+  min-height: 30px;
+  padding: 6px 8px;
+  color: var(--color-danger);
+  font-size: 12px;
 }
 
 .inspector-layer {
@@ -355,7 +373,7 @@
 
 .inspector__header h2 {
   margin-top: 6px;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.45;
 }
 
@@ -420,7 +438,7 @@
 
 .inspector__metrics dt {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .inspector__metrics dd {
@@ -434,6 +452,47 @@
   gap: 8px;
   border-top: 1px solid var(--color-border);
   padding: 16px 24px;
+}
+
+.analysis-detail dl {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+
+.analysis-detail dl > div {
+  display: grid;
+  gap: 4px;
+}
+
+.analysis-detail dt {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.analysis-detail dd {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.refresh-control {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.refresh-control > span {
+  min-height: 16px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.is-spinning {
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to { rotate: 1turn; }
 }
 
 .overview-skeleton {

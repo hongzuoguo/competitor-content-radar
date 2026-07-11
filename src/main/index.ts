@@ -17,6 +17,23 @@ const runtime: IpcDependencies = {
       creators: 0,
       newWorks: 0,
       analyzedWorks: 0,
+      run: {
+        status: 'idle' as const,
+        message: '完成设置后将于每天 09:00 自动运行',
+        requiresAction: true,
+        stages: [
+          { id: 'discovery', label: '采集', status: 'pending' as const },
+          { id: 'download', label: '下载', status: 'pending' as const },
+          { id: 'transcription', label: '转写', status: 'pending' as const },
+          { id: 'analysis', label: 'AI 拆解', status: 'pending' as const },
+          { id: 'feishu', label: '飞书同步', status: 'pending' as const }
+        ]
+      },
+      services: [
+        { id: 'douyin', label: '抖音登录', status: 'action_required' as const, detail: '尚未登录', actionLabel: '去登录' },
+        { id: 'ai', label: 'AI 拆解', status: 'action_required' as const, detail: '尚未配置', actionLabel: '去配置' },
+        { id: 'feishu', label: '飞书同步', status: 'action_required' as const, detail: '尚未授权', actionLabel: '去授权' }
+      ],
       highlights: []
     }
   },

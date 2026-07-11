@@ -18,6 +18,31 @@ export interface DashboardHighlight {
   reasons: HighlightReason[]
   summary: string
   originalUrl: string
+  analysis?: {
+    topicAngle: string
+    openingHook: string
+    structure: string
+    reusablePattern: string
+    differentiatedSuggestion: string
+    risk: string
+  }
+}
+
+export type DashboardState = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface DashboardRun {
+  status: 'idle' | 'running' | 'completed' | 'partial' | 'failed'
+  message: string
+  requiresAction: boolean
+  stages: Array<{ id: string; label: string; status: DashboardState }>
+}
+
+export interface DashboardService {
+  id: string
+  label: string
+  status: 'healthy' | 'unavailable' | 'action_required'
+  detail: string
+  actionLabel?: string
 }
 
 export interface DashboardData {
@@ -26,5 +51,7 @@ export interface DashboardData {
   creators: number
   newWorks: number
   analyzedWorks: number
+  run: DashboardRun
+  services: DashboardService[]
   highlights: DashboardHighlight[]
 }

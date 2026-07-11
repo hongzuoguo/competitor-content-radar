@@ -21,13 +21,13 @@
   width: 32px;
   height: 32px;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--color-primary);
   color: white;
 }
 
 .brand__name {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
