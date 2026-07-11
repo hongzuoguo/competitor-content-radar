@@ -76,7 +76,7 @@ app.whenReady().then(() => {
   registerIpcHandlers(runtime, updateService ?? undefined)
   mainWindow = createMainWindow()
   updateService?.subscribe((state) => mainWindow?.webContents.send(IPC_CHANNELS.updateStateChanged, state))
-  mainWindow.webContents.once('did-finish-load', () => { void updateService?.start() })
+  void updateService?.start()
   tray = createAppTray({
     showWindow: () => {
       if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
