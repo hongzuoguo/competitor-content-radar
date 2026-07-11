@@ -49,7 +49,7 @@ describe('overview trust and interaction hardening', () => {
     render(<OverviewPage data={data} />)
     expect(screen.getByText('238%')).toBeInTheDocument()
     expect(screen.getByText('91/100')).toBeInTheDocument()
-    expect(screen.getByText(/今天/)).toBeInTheDocument()
+    expect(screen.getByText(/08:20/)).toBeInTheDocument()
   })
 
   it('refreshes with a loading state and announces completion', async () => {
