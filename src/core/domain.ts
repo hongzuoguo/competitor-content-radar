@@ -14,14 +14,19 @@ export interface Creator {
   createdAt: string
 }
 
+export type WorkSourceType = 'douyin_monitor' | 'douyin_url' | 'local_file'
+
 export interface Work {
   id: string
-  creatorId: string
-  platformWorkId: string
+  creatorId: string | null
+  platformWorkId: string | null
+  sourceType: WorkSourceType
+  sourceKey: string
+  mediaPath: string | null
   title: string
   publishedAt: string
-  originalUrl: string
-  downloadUrl?: string | null
+  originalUrl: string | null
+  downloadUrl: string | null
   metrics: EngagementMetrics
 }
 

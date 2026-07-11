@@ -44,9 +44,13 @@ describe('Douyin metadata normalization', () => {
       id: `work-${index}`,
       creatorId: 'creator-1',
       platformWorkId: String(index),
+      sourceType: 'douyin_monitor' as const,
+      sourceKey: `douyin:${index}`,
+      mediaPath: null,
       title: `作品 ${index}`,
       publishedAt: new Date(Date.UTC(2026, 6, 11) - index * 24 * 60 * 60 * 1000).toISOString(),
       originalUrl: `https://www.douyin.com/video/${index}`,
+      downloadUrl: null,
       metrics: { likes: index, comments: 0, shares: 0, collects: 0 }
     }))
 

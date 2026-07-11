@@ -211,7 +211,7 @@ export class DesktopRuntime {
         referenceValueScore: score,
         reasons: evaluation.reasons,
         summary: analysis ? String(analysis.result.referenceValueReason ?? '已完成内容拆解') : '达到表现阈值，等待 AI 拆解',
-        originalUrl: work.originalUrl
+        originalUrl: work.originalUrl ?? ''
       }]
     })
     const analyzedWorks = recentWorks.filter((work) => this.repositories.analyses.get(work.id)).length

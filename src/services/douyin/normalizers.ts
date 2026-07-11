@@ -47,6 +47,9 @@ export function normalizeDouyinWork(
     title: String(raw.desc ?? raw.title ?? '未命名作品'),
     publishedAt: new Date(timestampSeconds * 1000).toISOString(),
     originalUrl: `https://www.douyin.com/video/${platformWorkId}`,
+    sourceType: 'douyin_monitor',
+    sourceKey: `douyin:${platformWorkId}`,
+    mediaPath: null,
     downloadUrl: typeof urls[0] === 'string' ? urls[0] : null,
     metrics: {
       likes: finiteCount(statistics.digg_count ?? statistics.like_count),
@@ -59,7 +62,7 @@ export function normalizeDouyinWork(
 
 export function deduplicateWorks(works: readonly Work[]): Work[] {
   const byPlatformId = new Map<string, Work>()
-  for (const work of works) byPlatformId.set(work.platformWorkId, work)
+  for (const work of works) byPlatformId.set(work.sourceKey, work)
   return [...byPlatformId.values()]
 }
 

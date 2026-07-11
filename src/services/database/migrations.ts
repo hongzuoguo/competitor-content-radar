@@ -71,5 +71,36 @@ export const MIGRATIONS = [
       value_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+  `,
+  `
+    CREATE TABLE works_v2 (
+      id TEXT PRIMARY KEY,
+      creator_id TEXT REFERENCES creators(id) ON DELETE CASCADE,
+      platform_work_id TEXT,
+      source_type TEXT NOT NULL CHECK (source_type IN ('douyin_monitor', 'douyin_url', 'local_file')),
+      source_key TEXT NOT NULL,
+      media_path TEXT,
+      title TEXT NOT NULL,
+      published_at TEXT NOT NULL,
+      original_url TEXT,
+      download_url TEXT,
+      likes INTEGER NOT NULL DEFAULT 0,
+      comments INTEGER NOT NULL DEFAULT 0,
+      shares INTEGER NOT NULL DEFAULT 0,
+      collects INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(source_type, source_key)
+    );
+
+    INSERT INTO works_v2 (
+      id, creator_id, platform_work_id, source_type, source_key, media_path,
+      title, published_at, original_url, download_url, likes, comments, shares, collects
+    ) SELECT
+      id, creator_id, platform_work_id, 'douyin_monitor', 'douyin:' || platform_work_id, NULL,
+      title, published_at, original_url, download_url, likes, comments, shares, collects
+    FROM works;
+
+    DROP TABLE works;
+    ALTER TABLE works_v2 RENAME TO works;
+    CREATE INDEX works_creator_published_idx ON works(creator_id, published_at DESC);
   `
 ] as const

@@ -30,12 +30,21 @@ export class AppDatabase {
     const currentVersion = this.schemaVersion
     if (currentVersion >= MIGRATIONS.length) return
 
-    this.connection.transaction(() => {
-      for (let index = currentVersion; index < MIGRATIONS.length; index += 1) {
-        this.connection.exec(MIGRATIONS[index])
-        this.connection.pragma(`user_version = ${index + 1}`)
-      }
-    })()
+    const foreignKeysEnabled = Boolean(this.connection.pragma('foreign_keys', { simple: true }))
+    if (foreignKeysEnabled) this.connection.pragma('foreign_keys = OFF')
+    try {
+      this.connection.transaction(() => {
+        for (let index = currentVersion; index < MIGRATIONS.length; index += 1) {
+          this.connection.exec(MIGRATIONS[index])
+          this.connection.pragma(`user_version = ${index + 1}`)
+        }
+      })()
+    } finally {
+      if (foreignKeysEnabled) this.connection.pragma('foreign_keys = ON')
+    }
+
+    const violations = this.connection.pragma('foreign_key_check') as unknown[]
+    if (violations.length > 0) throw new Error('Database migration failed foreign key check')
   }
 
   close(): void {

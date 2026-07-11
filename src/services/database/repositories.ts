@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { Creator, Work } from '../../core/domain'
+import type { Creator, Work, WorkSourceType } from '../../core/domain'
 import type { WorkflowStage } from '../../core/workflow'
 
 export interface MetricSnapshotRecord {
@@ -29,6 +29,17 @@ export interface RunRecord {
   summary: Record<string, unknown> | null
 }
 
+export interface JobRecord {
+  workId: string
+  stage: WorkflowStage
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  attemptCount: number
+  nextAttemptAt: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  updatedAt: string
+}
+
 function mapCreator(row: Record<string, unknown>): Creator {
   return {
     id: String(row.id),
@@ -43,11 +54,14 @@ function mapCreator(row: Record<string, unknown>): Creator {
 function mapWork(row: Record<string, unknown>): Work {
   return {
     id: String(row.id),
-    creatorId: String(row.creator_id),
-    platformWorkId: String(row.platform_work_id),
+    creatorId: row.creator_id === null ? null : String(row.creator_id),
+    platformWorkId: row.platform_work_id === null ? null : String(row.platform_work_id),
+    sourceType: String(row.source_type) as WorkSourceType,
+    sourceKey: String(row.source_key),
+    mediaPath: row.media_path === null ? null : String(row.media_path),
     title: String(row.title),
     publishedAt: String(row.published_at),
-    originalUrl: String(row.original_url),
+    originalUrl: row.original_url === null ? null : String(row.original_url),
     downloadUrl: row.download_url ? String(row.download_url) : null,
     metrics: {
       likes: Number(row.likes),
@@ -94,13 +108,18 @@ class WorkRepository {
     this.database
       .prepare(
         `INSERT INTO works (
-          id, creator_id, platform_work_id, title, published_at, original_url, download_url,
+          id, creator_id, platform_work_id, source_type, source_key, media_path,
+          title, published_at, original_url, download_url,
           likes, comments, shares, collects
         ) VALUES (
-          @id, @creatorId, @platformWorkId, @title, @publishedAt, @originalUrl, @downloadUrl,
+          @id, @creatorId, @platformWorkId, @sourceType, @sourceKey, @mediaPath,
+          @title, @publishedAt, @originalUrl, @downloadUrl,
           @likes, @comments, @shares, @collects
         )
-        ON CONFLICT(platform_work_id) DO UPDATE SET
+        ON CONFLICT(source_type, source_key) DO UPDATE SET
+          creator_id = excluded.creator_id,
+          platform_work_id = excluded.platform_work_id,
+          media_path = excluded.media_path,
           title = excluded.title,
           original_url = excluded.original_url,
           download_url = excluded.download_url,
@@ -109,11 +128,11 @@ class WorkRepository {
           shares = excluded.shares,
           collects = excluded.collects`
       )
-      .run({ ...work, downloadUrl: work.downloadUrl ?? null, ...work.metrics })
+      .run(workToParams(work))
 
     const row = this.database
-      .prepare('SELECT * FROM works WHERE platform_work_id = ?')
-      .get(work.platformWorkId) as Record<string, unknown>
+      .prepare('SELECT * FROM works WHERE source_type = ? AND source_key = ?')
+      .get(work.sourceType, work.sourceKey) as Record<string, unknown>
     return mapWork(row)
   }
 
@@ -130,21 +149,57 @@ class WorkRepository {
       .all()
       .map((row) => mapWork(row as Record<string, unknown>))
   }
+
+  findBySource(sourceType: WorkSourceType, sourceKey: string): Work | null {
+    const row = this.database
+      .prepare('SELECT * FROM works WHERE source_type = ? AND source_key = ?')
+      .get(sourceType, sourceKey) as Record<string, unknown> | undefined
+    return row ? mapWork(row) : null
+  }
+}
+
+function workToParams(work: Work): Record<string, unknown> {
+  return { ...work, ...work.metrics }
 }
 
 class JobRepository {
   constructor(private readonly database: Database.Database) {}
 
+  save(job: JobRecord): void {
+    this.database.prepare(
+      `INSERT INTO processing_jobs (
+        work_id, stage, status, attempt_count, next_attempt_at, error_code, error_message, updated_at
+      ) VALUES (@workId, @stage, @status, @attemptCount, @nextAttemptAt, @errorCode, @errorMessage, @updatedAt)
+      ON CONFLICT(work_id) DO UPDATE SET
+        stage = excluded.stage, status = excluded.status, attempt_count = excluded.attempt_count,
+        next_attempt_at = excluded.next_attempt_at, error_code = excluded.error_code,
+        error_message = excluded.error_message, updated_at = excluded.updated_at`
+    ).run(job)
+  }
+
+  get(workId: string): JobRecord | null {
+    const row = this.database.prepare('SELECT * FROM processing_jobs WHERE work_id = ?').get(workId) as
+      | Record<string, unknown> | undefined
+    return row ? mapJob(row) : null
+  }
+
+  list(): JobRecord[] {
+    return this.database.prepare('SELECT * FROM processing_jobs ORDER BY updated_at DESC').all()
+      .map((row) => mapJob(row as Record<string, unknown>))
+  }
+
   saveStage(workId: string, stage: WorkflowStage): void {
-    this.database
-      .prepare(
-        `INSERT INTO processing_jobs (work_id, stage, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(work_id) DO UPDATE SET
-           stage = excluded.stage,
-           updated_at = excluded.updated_at`
-      )
-      .run(workId, stage, new Date().toISOString())
+    const existing = this.get(workId)
+    this.save({
+      workId,
+      stage,
+      status: existing?.status ?? 'pending',
+      attemptCount: existing?.attemptCount ?? 0,
+      nextAttemptAt: existing?.nextAttemptAt ?? null,
+      errorCode: existing?.errorCode ?? null,
+      errorMessage: existing?.errorMessage ?? null,
+      updatedAt: new Date().toISOString()
+    })
   }
 
   getStage(workId: string): WorkflowStage | null {
@@ -152,6 +207,17 @@ class JobRepository {
       .prepare('SELECT stage FROM processing_jobs WHERE work_id = ?')
       .get(workId) as { stage: WorkflowStage } | undefined
     return row?.stage ?? null
+  }
+}
+
+function mapJob(row: Record<string, unknown>): JobRecord {
+  return {
+    workId: String(row.work_id), stage: String(row.stage) as WorkflowStage,
+    status: String(row.status) as JobRecord['status'], attemptCount: Number(row.attempt_count),
+    nextAttemptAt: row.next_attempt_at === null ? null : String(row.next_attempt_at),
+    errorCode: row.error_code === null ? null : String(row.error_code),
+    errorMessage: row.error_message === null ? null : String(row.error_message),
+    updatedAt: String(row.updated_at)
   }
 }
 

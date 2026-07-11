@@ -24,6 +24,7 @@ describe('desktop runtime assembly', () => {
     const work: Work = {
       id: 'douyin:7658', creatorId: '', platformWorkId: '7658', title: '测试作品',
       publishedAt: new Date().toISOString(), originalUrl: 'https://www.douyin.com/video/7658',
+      sourceType: 'douyin_monitor' as const, sourceKey: 'douyin:7658', mediaPath: null,
       downloadUrl: 'https://video.example/7658.mp4',
       metrics: { likes: 12000, comments: 100, shares: 20, collects: 30 }
     }
