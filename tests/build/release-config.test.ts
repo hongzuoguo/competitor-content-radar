@@ -16,6 +16,7 @@ describe('GitHub release configuration', () => {
   it('runs the release workflow only for version tags', () => {
     const workflow = readFileSync('.github/workflows/release.yml', 'utf8')
     expect(workflow).toContain("tags: ['v*']")
+    expect(workflow).toContain('npm rebuild better-sqlite3')
     expect(workflow).toContain('npm test -- --run')
     expect(workflow).toContain('npm run dist -- --publish always')
   })
