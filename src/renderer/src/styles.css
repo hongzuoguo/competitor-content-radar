@@ -1,0 +1,41 @@
+:root {
+  font-family: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: oklch(0.239 0.015 218.1);
+  background: oklch(1 0 0);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+main {
+  display: grid;
+  align-content: center;
+  min-height: 100vh;
+  padding: 64px;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+h1 {
+  margin-block: 8px 12px;
+  font-size: 32px;
+  line-height: 1.2;
+}
+
+.eyebrow {
+  color: oklch(0.487 0.076 202.2);
+  font-size: 12px;
+  font-weight: 650;
+}
