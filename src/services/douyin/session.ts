@@ -46,8 +46,20 @@ export class DouyinBrowserSession {
     const debuggerClient = window.webContents.debugger
 
     try {
+      await withTimeout(
+        window.loadURL('about:blank'),
+        10_000,
+        Object.assign(new Error('抖音采集窗口初始化超时'), {
+          code: 'DOUYIN_WINDOW_INIT_TIMEOUT',
+          retryable: true
+        })
+      )
       if (!debuggerClient.isAttached()) debuggerClient.attach('1.3')
-      await debuggerClient.sendCommand('Network.enable')
+      await withTimeout(
+        debuggerClient.sendCommand('Network.enable'),
+        10_000,
+        Object.assign(new Error('抖音采集器启动超时'), { code: 'DOUYIN_DEBUGGER_TIMEOUT', retryable: true })
+      )
       const onMessage = (
         _event: Electron.Event,
         method: string,
@@ -70,10 +82,17 @@ export class DouyinBrowserSession {
         })
       )
       await wait(8_000)
-      const bodyText = await window.webContents.executeJavaScript(
-        'document.body?.innerText?.slice(0, 4000) ?? ""',
-        true
-      ) as string
+      const bodyText = await withTimeout(
+        window.webContents.executeJavaScript(
+          'document.body?.innerText?.slice(0, 4000) ?? ""',
+          true
+        ) as Promise<string>,
+        10_000,
+        Object.assign(new Error('读取抖音主页超时，请重新登录抖音后重试'), {
+          code: 'DOUYIN_PAGE_READ_TIMEOUT',
+          retryable: true
+        })
+      )
       if (/验证码|安全验证|访问过于频繁/.test(bodyText)) {
         const error = Object.assign(new Error('抖音需要人工完成安全验证'), {
           code: 'DOUYIN_RISK_CONTROL',
