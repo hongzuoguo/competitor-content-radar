@@ -1,6 +1,6 @@
 {
   "name": "competitor-content-radar",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "抖音对标内容自动分析桌面工作台",
   "main": "./out/main/index.js",
@@ -65,7 +65,8 @@
         "provider": "github",
         "owner": "hongzuoguo",
         "repo": "competitor-content-radar",
-        "channel": "latest"
+        "channel": "latest",
+        "releaseType": "release"
       }
     ],
     "win": {
