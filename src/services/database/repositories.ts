@@ -81,6 +81,10 @@ class CreatorRepository {
   setEnabled(id: string, enabled: boolean): void {
     this.database.prepare('UPDATE creators SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id)
   }
+
+  delete(id: string): void {
+    this.database.prepare('DELETE FROM creators WHERE id = ?').run(id)
+  }
 }
 
 class WorkRepository {

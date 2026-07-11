@@ -82,6 +82,10 @@ export class DesktopRuntime {
     this.repositories.creators.setEnabled(id, enabled)
   }
 
+  async deleteCreator(id: string): Promise<void> {
+    this.repositories.creators.delete(id)
+  }
+
   async getSettings(): Promise<PublicSettings> {
     return this.repositories.settings.get<PublicSettings>('app.publicSettings') ?? {
       dailyTime: '09:00', weeklyTime: '09:30', absoluteLikes: 10_000,

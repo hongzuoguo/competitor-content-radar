@@ -33,6 +33,25 @@ describe('SQLite repositories', () => {
     expect(() => repositories.creators.create({ ...creator, id: 'creator-2' })).toThrow()
   })
 
+  it('deletes a creator and cascades its works', () => {
+    repositories.creators.create({
+      id: 'creator-delete', platform: 'douyin', name: '待删除博主',
+      profileUrl: 'https://www.douyin.com/user/delete', enabled: true,
+      createdAt: '2026-07-11T09:00:00.000Z'
+    })
+    repositories.works.upsert({
+      id: 'work-delete', creatorId: 'creator-delete', platformWorkId: 'delete-1',
+      title: '待删除作品', publishedAt: '2026-07-11T08:00:00.000Z',
+      originalUrl: 'https://www.douyin.com/video/delete-1',
+      metrics: { likes: 1, comments: 0, shares: 0, collects: 0 }
+    })
+
+    repositories.creators.delete('creator-delete')
+
+    expect(repositories.creators.list()).toEqual([])
+    expect(repositories.works.listAll()).toEqual([])
+  })
+
   it('upserts a work without duplicating its platform ID', () => {
     repositories.creators.create({
       id: 'creator-1',

@@ -1,14 +1,16 @@
-import { ExternalLink, MoreHorizontal } from 'lucide-react'
+import { ExternalLink, Trash2 } from 'lucide-react'
 import { Button } from '../../components/Button'
 import { StatusBadge } from '../../components/StatusBadge'
 import type { CreatorRow } from './types'
 
 export function CreatorTable({
   creators,
-  onToggle
+  onToggle,
+  onDelete
 }: {
   creators: CreatorRow[]
   onToggle(id: string): void
+  onDelete(creator: CreatorRow): void
 }): React.JSX.Element {
   return (
     <div className="table-wrap">
@@ -21,7 +23,7 @@ export function CreatorTable({
               <td>{creator.status === 'waiting' ? <StatusBadge tone="warning">等待首次采集</StatusBadge> : creator.status === 'attention' ? <StatusBadge tone="danger">需要登录</StatusBadge> : <StatusBadge tone="success">监控正常</StatusBadge>}</td>
               <td>{creator.works === 0 ? '—' : `${creator.works} 条`}</td>
               <td>{creator.lastRun}</td>
-              <td><div className="row-actions"><label className="switch"><input aria-label={`${creator.name}自动监控`} checked={creator.enabled} onChange={() => onToggle(creator.id)} type="checkbox" /><span /></label><Button aria-label={`打开${creator.name}主页`} icon={<ExternalLink size={15} />} onClick={() => void window.desktopApi?.openExternal(creator.profileUrl)} variant="ghost" /><Button aria-label={`${creator.name}更多操作`} icon={<MoreHorizontal size={16} />} variant="ghost" /></div></td>
+              <td><div className="row-actions"><label className="switch"><input aria-label={`${creator.name}自动监控`} checked={creator.enabled} onChange={() => onToggle(creator.id)} type="checkbox" /><span /></label><Button aria-label={`打开${creator.name}主页`} icon={<ExternalLink size={15} />} onClick={() => void window.desktopApi?.openExternal(creator.profileUrl)} variant="ghost" /><Button aria-label={`删除${creator.name}`} icon={<Trash2 size={16} />} onClick={() => onDelete(creator)} variant="ghost" /></div></td>
             </tr>
           ))}
         </tbody>

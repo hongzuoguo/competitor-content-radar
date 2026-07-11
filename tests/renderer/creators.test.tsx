@@ -21,4 +21,16 @@ describe('creator management', () => {
     expect(screen.getByRole('button', { name: '添加博主' })).toBeDisabled()
     expect(screen.getByText('已达到 10 位上限')).toBeInTheDocument()
   })
+
+  it('requires confirmation before deleting a creator', () => {
+    render(<CreatorsPage initialCreators={[{
+      id: 'creator-1', name: '测试博主', profileUrl: 'https://www.douyin.com/user/test',
+      enabled: true, works: 0, lastRun: '尚未采集', status: 'waiting'
+    }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '删除测试博主' }))
+    expect(screen.getByRole('dialog', { name: '删除测试博主？' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    expect(screen.queryByText('测试博主')).not.toBeInTheDocument()
+  })
 })

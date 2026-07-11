@@ -7,6 +7,7 @@ export interface IpcDependencies {
   runNow(): Promise<{ accepted: boolean; reason?: string }>
   listCreators(): Promise<CreatorView[]>
   addCreator(url: string): Promise<CreatorView>
+  deleteCreator(id: string): Promise<void>
   toggleCreator(id: string, enabled: boolean): Promise<void>
   loginDouyin(): Promise<void>
   getSettings(): Promise<PublicSettings>
@@ -21,6 +22,10 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   ipcMain.handle(IPC_CHANNELS.creatorAdd, (_event, url: unknown) => {
     if (typeof url !== 'string') throw new Error('INVALID_CREATOR_URL')
     return dependencies.addCreator(url)
+  })
+  ipcMain.handle(IPC_CHANNELS.creatorDelete, (_event, id: unknown) => {
+    if (typeof id !== 'string') throw new Error('INVALID_CREATOR_DELETE')
+    return dependencies.deleteCreator(id)
   })
   ipcMain.handle(IPC_CHANNELS.creatorToggle, (_event, id: unknown, enabled: unknown) => {
     if (typeof id !== 'string' || typeof enabled !== 'boolean') throw new Error('INVALID_CREATOR_TOGGLE')

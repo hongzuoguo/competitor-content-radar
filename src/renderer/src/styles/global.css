@@ -153,6 +153,15 @@ p {
   background: var(--color-primary-hover);
 }
 
+.button--danger {
+  background: var(--color-danger);
+  color: white;
+}
+
+.button--danger:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
 .button--secondary {
   border-color: var(--color-border);
   background: var(--color-bg);

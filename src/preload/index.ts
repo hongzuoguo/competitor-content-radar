@@ -10,6 +10,7 @@ export interface DesktopApi {
   openExternal: (url: string) => Promise<void>
   listCreators: () => Promise<CreatorView[]>
   addCreator: (url: string) => Promise<CreatorView>
+  deleteCreator: (id: string) => Promise<void>
   toggleCreator: (id: string, enabled: boolean) => Promise<void>
   loginDouyin: () => Promise<void>
   getSettings: () => Promise<PublicSettings>
@@ -23,6 +24,7 @@ const desktopApi: DesktopApi = {
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
   listCreators: () => ipcRenderer.invoke(IPC_CHANNELS.creatorList),
   addCreator: (url) => ipcRenderer.invoke(IPC_CHANNELS.creatorAdd, url),
+  deleteCreator: (id) => ipcRenderer.invoke(IPC_CHANNELS.creatorDelete, id),
   toggleCreator: (id, enabled) => ipcRenderer.invoke(IPC_CHANNELS.creatorToggle, id, enabled),
   loginDouyin: () => ipcRenderer.invoke(IPC_CHANNELS.douyinLogin),
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet),

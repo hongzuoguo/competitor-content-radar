@@ -1,6 +1,6 @@
 {
   "name": "competitor-content-radar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "抖音对标内容自动分析桌面工作台",
   "main": "./out/main/index.js",
@@ -63,7 +63,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "对标内容雷达-${version}-Windows-x64-安装程序.${ext}"

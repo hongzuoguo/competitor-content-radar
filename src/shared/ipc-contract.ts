@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   openExternal: 'system:open-external',
   creatorList: 'creators:list',
   creatorAdd: 'creators:add',
+  creatorDelete: 'creators:delete',
   creatorToggle: 'creators:toggle',
   douyinLogin: 'douyin:login',
   settingsGet: 'settings:get',
