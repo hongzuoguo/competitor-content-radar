@@ -9,3 +9,12 @@ coverage/
 !.env.example
 .playwright-cli/
 artifacts/
+*.db
+*.db-shm
+*.db-wal
+*.db.backup-*
+media/
+models/
+*.onnx
+*.wav
+*.mp4
