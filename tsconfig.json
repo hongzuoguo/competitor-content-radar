@@ -17,5 +17,12 @@
     "jsx": "react-jsx",
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src/renderer", "src/shared", "tests/renderer", "tests/smoke"]
+  "include": [
+    "src/renderer",
+    "src/shared",
+    "src/services/ai/provider-catalog.ts",
+    "src/services/ai/provider-types.ts",
+    "tests/renderer",
+    "tests/smoke"
+  ]
 }
