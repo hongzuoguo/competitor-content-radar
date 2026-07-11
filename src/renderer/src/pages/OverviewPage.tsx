@@ -75,7 +75,7 @@ export function OverviewPage({
           <div className="section-heading"><div><h2 id="highlight-title">今日重点</h2><p>点击作品查看入选原因和可借鉴内容</p></div><span>{data.highlights.length} 条</span></div>
           {data.highlights.length > 0 ? <HighlightList highlights={data.highlights} onSelect={(highlight) => setSelected(highlight)} /> : <EmptyState title="今天还没有重点作品" description="没有作品达到 10,000 点赞、150 相对爆款指数或 80 分借鉴价值。" />}
         </section>
-        <TaskHealth services={data.services} />
+        <TaskHealth onAction={(service) => service.id === 'douyin' ? void window.desktopApi?.loginDouyin() : window.location.hash = '#/settings'} services={data.services} />
       </div>
       <MetricStrip items={[
         { label: '监控博主', value: data.creators, note: '最多 10 位' },

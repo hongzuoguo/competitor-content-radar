@@ -1,51 +1,16 @@
 import { app, BrowserWindow, shell, type Tray } from 'electron'
 import { join } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
-import { nextDailyRun, AppScheduler } from './scheduler'
-import { registerIpcHandlers, type IpcDependencies } from './ipc'
+import { AppScheduler } from './scheduler'
+import { registerIpcHandlers } from './ipc'
 import { createAppTray } from './tray'
+import { createProductionRuntime, type ProductionRuntime } from './production-runtime'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
-
-const runtime: IpcDependencies = {
-  async getDashboard() {
-    return {
-      lastRunAt: null,
-      nextRunAt: nextDailyRun(new Date()).toISOString(),
-      creators: 0,
-      newWorks: 0,
-      analyzedWorks: 0,
-      run: {
-        status: 'idle' as const,
-        message: '完成设置后将于每天 09:00 自动运行',
-        requiresAction: true,
-        stages: [
-          { id: 'discovery', label: '采集', status: 'pending' as const },
-          { id: 'download', label: '下载', status: 'pending' as const },
-          { id: 'transcription', label: '转写', status: 'pending' as const },
-          { id: 'analysis', label: 'AI 拆解', status: 'pending' as const },
-          { id: 'feishu', label: '飞书同步', status: 'pending' as const }
-        ]
-      },
-      services: [
-        { id: 'douyin', label: '抖音登录', status: 'action_required' as const, detail: '尚未登录', actionLabel: '去登录' },
-        { id: 'ai', label: 'AI 拆解', status: 'action_required' as const, detail: '尚未配置', actionLabel: '去配置' },
-        { id: 'feishu', label: '飞书同步', status: 'action_required' as const, detail: '尚未授权', actionLabel: '去授权' }
-      ],
-      highlights: []
-    }
-  },
-  async runNow() {
-    return { accepted: false, reason: '请先完成抖音登录和 AI 模型设置' }
-  }
-}
-
-const scheduler = new AppScheduler(
-  async () => { await runtime.runNow() },
-  async () => { await runtime.runNow() }
-)
+let production: ProductionRuntime | null = null
+let scheduler: AppScheduler | null = null
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -86,6 +51,9 @@ function createMainWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   app.setName(APP_METADATA.productName)
+  app.setAppUserModelId('com.contentradar.desktop')
+  production = createProductionRuntime()
+  const runtime = production.runtime
   registerIpcHandlers(runtime)
   mainWindow = createMainWindow()
   tray = createAppTray({
@@ -100,6 +68,10 @@ app.whenReady().then(() => {
       app.quit()
     }
   })
+  scheduler = new AppScheduler(
+    async () => { await runtime.runNow() },
+    async () => { await runtime.runNow() }
+  )
   scheduler.start(null)
 
   app.on('activate', () => {
@@ -109,6 +81,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true
-  scheduler.stop()
+  scheduler?.stop()
   tray?.destroy()
+  production?.close()
 })

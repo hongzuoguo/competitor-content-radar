@@ -77,6 +77,10 @@ class CreatorRepository {
       .all()
       .map((row) => mapCreator(row as Record<string, unknown>))
   }
+
+  setEnabled(id: string, enabled: boolean): void {
+    this.database.prepare('UPDATE creators SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id)
+  }
 }
 
 class WorkRepository {
@@ -113,6 +117,13 @@ class WorkRepository {
     return this.database
       .prepare('SELECT * FROM works WHERE creator_id = ? ORDER BY published_at DESC')
       .all(creatorId)
+      .map((row) => mapWork(row as Record<string, unknown>))
+  }
+
+  listAll(): Work[] {
+    return this.database
+      .prepare('SELECT * FROM works ORDER BY published_at DESC')
+      .all()
       .map((row) => mapWork(row as Record<string, unknown>))
   }
 }

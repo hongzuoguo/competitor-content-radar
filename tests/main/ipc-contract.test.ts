@@ -7,7 +7,13 @@ describe('desktop IPC contract', () => {
       appMetadata: 'app:metadata',
       dashboard: 'dashboard:get',
       runNow: 'runs:start-now',
-      openExternal: 'system:open-external'
+      openExternal: 'system:open-external',
+      creatorList: 'creators:list',
+      creatorAdd: 'creators:add',
+      creatorToggle: 'creators:toggle',
+      douyinLogin: 'douyin:login',
+      settingsGet: 'settings:get',
+      settingsSave: 'settings:save'
     })
   })
 })

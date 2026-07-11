@@ -7,20 +7,33 @@ import './setup-wizard.css'
 
 const STEPS = ['抖音登录', 'AI 模型', '飞书同步', '添加博主', '自动运行'] as const
 
+export interface SetupValues {
+  providerId: AiProviderId
+  modelId: string
+  apiKey: string
+  creatorUrl: string
+  dailyTime: string
+  weeklyTime: string
+}
+
 export function SetupWizard({
   onComplete,
   onLogin = async () => undefined,
   onAuthorizeFeishu = async () => undefined
 }: {
-  onComplete(): void
+  onComplete(values: SetupValues): void | Promise<void>
   onLogin?: () => Promise<void>
   onAuthorizeFeishu?: () => Promise<void>
 }): React.JSX.Element {
   const [step, setStep] = useState(0)
   const [providerId, setProviderId] = useState<AiProviderId>('qwen')
   const provider = useMemo(() => AI_PROVIDER_CATALOG.find((item) => item.id === providerId)!, [providerId])
+  const [modelId, setModelId] = useState(provider.models.find((item) => item.recommended)?.id ?? '')
+  const [apiKey, setApiKey] = useState('')
   const [creatorUrl, setCreatorUrl] = useState('')
   const [creatorError, setCreatorError] = useState('')
+  const [dailyTime, setDailyTime] = useState('09:00')
+  const [weeklyTime, setWeeklyTime] = useState('09:30')
 
   function addCreator(): void {
     if (!/^https:\/\/(www\.)?douyin\.com\/user\/[^/?]+/.test(creatorUrl.trim())) {
@@ -29,6 +42,12 @@ export function SetupWizard({
     }
     setCreatorError('')
     setStep(4)
+  }
+
+  function changeProvider(value: AiProviderId): void {
+    const next = AI_PROVIDER_CATALOG.find((item) => item.id === value)!
+    setProviderId(value)
+    setModelId(next.models.find((item) => item.recommended)?.id ?? '')
   }
 
   return (
@@ -48,7 +67,7 @@ export function SetupWizard({
           </> : null}
           {step === 1 ? <>
             <span className="setup-kicker">第 2 步，共 5 步</span><h2>选择 AI 拆解模型</h2><p>模型负责选题、钩子、结构、爆点和差异化创作建议。本地转写会自动完成，无需额外设置。</p>
-            <div className="setup-form-grid"><div className="form-field"><label htmlFor="setup-provider">AI 提供商</label><select id="setup-provider" onChange={(event) => setProviderId(event.target.value as AiProviderId)} value={providerId}>{AI_PROVIDER_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div><div className="form-field"><label htmlFor="setup-model">模型</label><select id="setup-model" defaultValue={provider.models.find((item) => item.recommended)?.id}>{provider.models.map((model) => <option key={model.id} value={model.id}>{model.label}{model.recommended ? '（推荐）' : ''}</option>)}</select></div><div className="form-field setup-form-wide"><label htmlFor="setup-key">API Key</label><input id="setup-key" placeholder="输入后加密保存在本机" type="password" /></div></div>
+            <div className="setup-form-grid"><div className="form-field"><label htmlFor="setup-provider">AI 提供商</label><select id="setup-provider" onChange={(event) => changeProvider(event.target.value as AiProviderId)} value={providerId}>{AI_PROVIDER_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div><div className="form-field"><label htmlFor="setup-model">模型</label>{providerId === 'custom' ? <input id="setup-model" onChange={(event) => setModelId(event.target.value)} placeholder="输入模型 ID" value={modelId} /> : <select id="setup-model" onChange={(event) => setModelId(event.target.value)} value={modelId}>{provider.models.map((model) => <option key={model.id} value={model.id}>{model.label}{model.recommended ? '（推荐）' : ''}</option>)}</select>}</div><div className="form-field setup-form-wide"><label htmlFor="setup-key">API Key</label><input id="setup-key" onChange={(event) => setApiKey(event.target.value)} placeholder="输入后加密保存在本机" type="password" value={apiKey} /></div></div>
             <div className="setup-actions"><Button icon={<ArrowLeft size={16} />} onClick={() => setStep(0)} variant="ghost">上一步</Button><Button icon={<ArrowRight size={16} />} onClick={() => setStep(2)}>保存并继续</Button></div>
           </> : null}
           {step === 2 ? <>
@@ -63,9 +82,9 @@ export function SetupWizard({
           </> : null}
           {step === 4 ? <>
             <span className="setup-kicker">第 5 步，共 5 步</span><h2>确认自动运行时间</h2><p>每日采集和每周报告只在电脑开机时运行；错过计划后，下次启动会补跑一次。</p>
-            <div className="setup-form-grid"><div className="form-field"><label htmlFor="setup-daily">每日监控</label><input defaultValue="09:00" id="setup-daily" type="time" /></div><div className="form-field"><label htmlFor="setup-weekly">周一报告</label><input defaultValue="09:30" id="setup-weekly" type="time" /></div></div>
+            <div className="setup-form-grid"><div className="form-field"><label htmlFor="setup-daily">每日监控</label><input id="setup-daily" onChange={(event) => setDailyTime(event.target.value)} type="time" value={dailyTime} /></div><div className="form-field"><label htmlFor="setup-weekly">周一报告</label><input id="setup-weekly" onChange={(event) => setWeeklyTime(event.target.value)} type="time" value={weeklyTime} /></div></div>
             <div className="setup-note">“今日重点”默认标准：点赞 ≥ 10,000、相对爆款指数 ≥ 150 或 AI 借鉴评分 ≥ 80。</div>
-            <div className="setup-actions"><Button onClick={() => setStep(3)} variant="ghost">上一步</Button><Button icon={<Check size={16} />} onClick={onComplete}>完成设置</Button></div>
+            <div className="setup-actions"><Button onClick={() => setStep(3)} variant="ghost">上一步</Button><Button icon={<Check size={16} />} onClick={() => void onComplete({ providerId, modelId, apiKey, creatorUrl: creatorUrl.trim(), dailyTime, weeklyTime })}>完成设置</Button></div>
           </> : null}
         </div>
       </main>

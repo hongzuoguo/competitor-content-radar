@@ -4,8 +4,38 @@ export const IPC_CHANNELS = {
   appMetadata: 'app:metadata',
   dashboard: 'dashboard:get',
   runNow: 'runs:start-now',
-  openExternal: 'system:open-external'
+  openExternal: 'system:open-external',
+  creatorList: 'creators:list',
+  creatorAdd: 'creators:add',
+  creatorToggle: 'creators:toggle',
+  douyinLogin: 'douyin:login',
+  settingsGet: 'settings:get',
+  settingsSave: 'settings:save'
 } as const
+
+export interface CreatorView {
+  id: string
+  name: string
+  profileUrl: string
+  enabled: boolean
+  works: number
+  lastRun: string
+  status: 'ready' | 'waiting' | 'attention'
+}
+
+export interface PublicSettings {
+  providerId?: string
+  modelId?: string
+  customBaseUrl?: string
+  dailyTime?: string
+  weeklyTime?: string
+  absoluteLikes?: number
+  relativeViralIndex?: number
+  referenceValueScore?: number
+  mediaRetentionDays?: number
+  feishuConnected?: boolean
+  douyinLoggedIn?: boolean
+}
 
 export interface DashboardHighlight {
   id: string
