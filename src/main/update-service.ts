@@ -1,9 +1,4 @@
-export type UpdateState =
-  | { status: 'idle' | 'checking' | 'up_to_date' | 'installing' }
-  | { status: 'available'; version: string }
-  | { status: 'downloading'; percent: number }
-  | { status: 'waiting_for_idle'; version: string }
-  | { status: 'error'; message: string }
+import type { UpdateState } from '../shared/ipc-contract'
 
 export interface UpdaterAdapter {
   autoDownload: boolean

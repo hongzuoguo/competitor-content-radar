@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type DashboardData } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type DashboardData, type UpdateState } from '../shared/ipc-contract'
 import type { CreatorView, PublicSettings } from '../shared/ipc-contract'
 
 export interface DesktopApi {
@@ -15,6 +15,9 @@ export interface DesktopApi {
   loginDouyin: () => Promise<void>
   getSettings: () => Promise<PublicSettings>
   saveSettings: (settings: Partial<PublicSettings> & { apiKey?: string }) => Promise<PublicSettings>
+  getUpdateState: () => Promise<UpdateState>
+  retryUpdate: () => Promise<void>
+  onUpdateState: (listener: (state: UpdateState) => void) => () => void
 }
 
 const desktopApi: DesktopApi = {
@@ -28,7 +31,14 @@ const desktopApi: DesktopApi = {
   toggleCreator: (id, enabled) => ipcRenderer.invoke(IPC_CHANNELS.creatorToggle, id, enabled),
   loginDouyin: () => ipcRenderer.invoke(IPC_CHANNELS.douyinLogin),
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
-  saveSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.settingsSave, settings)
+  saveSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.settingsSave, settings),
+  getUpdateState: () => ipcRenderer.invoke(IPC_CHANNELS.updateGet),
+  retryUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.updateRetry),
+  onUpdateState: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: UpdateState): void => listener(state)
+    ipcRenderer.on(IPC_CHANNELS.updateStateChanged, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.updateStateChanged, handler)
+  }
 }
 
 contextBridge.exposeInMainWorld('desktopApi', desktopApi)

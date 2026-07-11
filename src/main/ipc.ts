@@ -1,6 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type CreatorView, type DashboardData, type PublicSettings } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type CreatorView, type DashboardData, type PublicSettings, type UpdateState } from '../shared/ipc-contract'
 
 export interface IpcDependencies {
   getDashboard(): Promise<DashboardData>
@@ -14,7 +14,12 @@ export interface IpcDependencies {
   saveSettings(settings: Partial<PublicSettings> & { apiKey?: string }): Promise<PublicSettings>
 }
 
-export function registerIpcHandlers(dependencies: IpcDependencies): void {
+export interface UpdateIpcDependencies {
+  getState(): UpdateState
+  retry(): Promise<void>
+}
+
+export function registerIpcHandlers(dependencies: IpcDependencies, updates?: UpdateIpcDependencies): void {
   ipcMain.handle(IPC_CHANNELS.appMetadata, () => APP_METADATA)
   ipcMain.handle(IPC_CHANNELS.dashboard, () => dependencies.getDashboard())
   ipcMain.handle(IPC_CHANNELS.runNow, () => dependencies.runNow())
@@ -37,6 +42,8 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     if (!settings || typeof settings !== 'object') throw new Error('INVALID_SETTINGS')
     return dependencies.saveSettings(settings as Partial<PublicSettings> & { apiKey?: string })
   })
+  ipcMain.handle(IPC_CHANNELS.updateGet, () => updates?.getState() ?? { status: 'idle' })
+  ipcMain.handle(IPC_CHANNELS.updateRetry, () => updates?.retry())
   ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, value: unknown) => {
     if (typeof value !== 'string') throw new Error('INVALID_EXTERNAL_URL')
     const url = new URL(value)

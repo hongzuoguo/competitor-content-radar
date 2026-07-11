@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, type Tray } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { join } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
+import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { AppScheduler } from './scheduler'
 import { registerIpcHandlers } from './ipc'
 import { createAppTray } from './tray'
@@ -72,8 +73,9 @@ app.whenReady().then(() => {
     )
     runtime.onBusinessIdle(() => updateService?.notifyBusinessIdle())
   }
-  registerIpcHandlers(runtime)
+  registerIpcHandlers(runtime, updateService ?? undefined)
   mainWindow = createMainWindow()
+  updateService?.subscribe((state) => mainWindow?.webContents.send(IPC_CHANNELS.updateStateChanged, state))
   mainWindow.webContents.once('did-finish-load', () => { void updateService?.start() })
   tray = createAppTray({
     showWindow: () => {

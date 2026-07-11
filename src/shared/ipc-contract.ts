@@ -11,8 +11,18 @@ export const IPC_CHANNELS = {
   creatorToggle: 'creators:toggle',
   douyinLogin: 'douyin:login',
   settingsGet: 'settings:get',
-  settingsSave: 'settings:save'
+  settingsSave: 'settings:save',
+  updateGet: 'updates:get',
+  updateRetry: 'updates:retry',
+  updateStateChanged: 'updates:state-changed'
 } as const
+
+export type UpdateState =
+  | { status: 'idle' | 'checking' | 'up_to_date' | 'installing' }
+  | { status: 'available'; version: string }
+  | { status: 'downloading'; percent: number }
+  | { status: 'waiting_for_idle'; version: string }
+  | { status: 'error'; message: string }
 
 export interface CreatorView {
   id: string

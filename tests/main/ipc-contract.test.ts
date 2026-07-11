@@ -14,7 +14,10 @@ describe('desktop IPC contract', () => {
       creatorToggle: 'creators:toggle',
       douyinLogin: 'douyin:login',
       settingsGet: 'settings:get',
-      settingsSave: 'settings:save'
+      settingsSave: 'settings:save',
+      updateGet: 'updates:get',
+      updateRetry: 'updates:retry',
+      updateStateChanged: 'updates:state-changed'
     })
   })
 })
