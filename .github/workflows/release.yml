@@ -32,7 +32,16 @@ jobs:
       - name: Check types
         run: npm run typecheck
 
-      - name: Build and publish release
-        run: npm run dist -- --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build release files
+        run: npm run dist
+
+      - name: Publish complete GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release/competitor-content-radar-setup-*.exe
+            release/competitor-content-radar-setup-*.exe.blockmap
+            release/latest.yml
