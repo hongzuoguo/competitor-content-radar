@@ -55,8 +55,10 @@ export class UpdateService {
   notifyBusinessIdle(): void {
     if (!this.downloadedVersion || !this.isBusinessIdle()) return
     this.setState({ status: 'installing' })
-    this.prepareInstall()
-    this.updater.quitAndInstall(true, true)
+    setTimeout(() => {
+      this.prepareInstall()
+      this.updater.quitAndInstall(true, true)
+    }, 0)
   }
 
   private bindEvents(): void {

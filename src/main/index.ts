@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, type Tray } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import log from 'electron-log/main'
 import { join } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
@@ -66,6 +67,8 @@ app.whenReady().then(() => {
   production = createProductionRuntime()
   const runtime = production.runtime
   if (app.isPackaged) {
+    log.transports.file.level = 'info'
+    autoUpdater.logger = log
     updateService = new UpdateService(
       autoUpdater as unknown as UpdaterAdapter,
       () => runtime.isBusinessIdle(),

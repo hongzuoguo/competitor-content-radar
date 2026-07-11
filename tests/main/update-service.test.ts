@@ -11,6 +11,7 @@ class FakeUpdater extends EventEmitter implements UpdaterAdapter {
 
 describe('automatic update service', () => {
   it('normalizes progress and installs a downloaded update only when business is idle', async () => {
+    vi.useFakeTimers()
     const updater = new FakeUpdater()
     let idle = false
     const installOrder: string[] = []
@@ -31,8 +32,11 @@ describe('automatic update service', () => {
     idle = true
     service.notifyBusinessIdle()
     expect(service.getState()).toEqual({ status: 'installing' })
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
+    await vi.runAllTimersAsync()
     expect(updater.quitAndInstall).toHaveBeenCalledWith(true, true)
     expect(installOrder).toEqual(['prepare', 'quit'])
+    vi.useRealTimers()
   })
 
   it('keeps the current version usable when update checks fail', async () => {
