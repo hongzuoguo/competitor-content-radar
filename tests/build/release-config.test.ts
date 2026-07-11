@@ -9,6 +9,8 @@ describe('GitHub release configuration', () => {
     expect(packageJson.build.publish).toEqual([{
       provider: 'github', owner: 'hongzuoguo', repo: 'competitor-content-radar', channel: 'latest'
     }])
+    expect((packageJson.build as { win?: { artifactName?: string } }).win?.artifactName)
+      .toBe('competitor-content-radar-setup-${version}.${ext}')
   })
 
   it('runs the release workflow only for version tags', () => {
