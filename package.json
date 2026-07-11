@@ -60,6 +60,14 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hongzuoguo",
+        "repo": "competitor-content-radar",
+        "channel": "latest"
+      }
+    ],
     "win": {
       "target": [
         {
