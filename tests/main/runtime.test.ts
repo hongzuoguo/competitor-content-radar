@@ -44,4 +44,24 @@ describe('desktop runtime assembly', () => {
     expect(dashboard.analyzedWorks).toBe(1)
     expect(dashboard.highlights).toHaveLength(1)
   })
+
+  it('reports business idleness around a running collection', async () => {
+    let finishDiscovery!: (works: Work[]) => void
+    const discovery = new Promise<Work[]>((resolve) => { finishDiscovery = resolve })
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(() => discovery), processWork: vi.fn(), login: vi.fn()
+    })
+    const becameIdle = vi.fn()
+    runtime.onBusinessIdle(becameIdle)
+    await runtime.addCreator('https://www.douyin.com/user/idle-check')
+    await runtime.saveSettings({ providerId: 'qwen', modelId: 'qwen3.7-plus' })
+
+    expect(runtime.isBusinessIdle()).toBe(true)
+    const run = runtime.runNow()
+    expect(runtime.isBusinessIdle()).toBe(false)
+    finishDiscovery([])
+    await run
+    expect(runtime.isBusinessIdle()).toBe(true)
+    expect(becameIdle).toHaveBeenCalledTimes(1)
+  })
 })

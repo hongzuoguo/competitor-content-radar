@@ -34,6 +34,7 @@ const EMPTY_STAGES = [
 export class DesktopRuntime {
   private readonly repositories: AppRepositories
   private running = false
+  private readonly idleListeners = new Set<() => void>()
   private lastRunAt: string | null = null
   private runState: DashboardData['run'] = {
     status: 'idle',
@@ -110,17 +111,17 @@ export class DesktopRuntime {
 
   async runNow(): Promise<{ accepted: boolean; reason?: string }> {
     if (this.running) return { accepted: false, reason: '已有任务正在运行' }
-    const settings = await this.getSettings()
-    const creators = this.repositories.creators.list().filter((creator) => creator.enabled)
-    if (creators.length === 0) return { accepted: false, reason: '请先添加至少一位博主' }
-    if (!settings.providerId || !settings.modelId) return { accepted: false, reason: '请先完成 AI 模型设置' }
-
     this.running = true
-    this.runState = {
-      status: 'running', message: '正在采集公开作品，暂时无需操作', requiresAction: false,
-      stages: EMPTY_STAGES.map((stage, index) => ({ ...stage, status: index === 0 ? 'running' as const : 'pending' as const }))
-    }
     try {
+      const settings = await this.getSettings()
+      const creators = this.repositories.creators.list().filter((creator) => creator.enabled)
+      if (creators.length === 0) return { accepted: false, reason: '请先添加至少一位博主' }
+      if (!settings.providerId || !settings.modelId) return { accepted: false, reason: '请先完成 AI 模型设置' }
+
+      this.runState = {
+        status: 'running', message: '正在采集公开作品，暂时无需操作', requiresAction: false,
+        stages: EMPTY_STAGES.map((stage, index) => ({ ...stage, status: index === 0 ? 'running' as const : 'pending' as const }))
+      }
       for (const creator of creators) {
         const discovered = selectBaselineWorks(await this.ports.discover(creator.id, creator.profileUrl))
         for (const work of discovered) {
@@ -162,7 +163,17 @@ export class DesktopRuntime {
       throw error
     } finally {
       this.running = false
+      for (const listener of this.idleListeners) listener()
     }
+  }
+
+  isBusinessIdle(): boolean {
+    return !this.running
+  }
+
+  onBusinessIdle(listener: () => void): () => void {
+    this.idleListeners.add(listener)
+    return () => this.idleListeners.delete(listener)
   }
 
   async getDashboard(): Promise<DashboardData> {

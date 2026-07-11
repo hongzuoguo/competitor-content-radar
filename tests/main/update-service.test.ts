@@ -13,7 +13,9 @@ describe('automatic update service', () => {
   it('normalizes progress and installs a downloaded update only when business is idle', async () => {
     const updater = new FakeUpdater()
     let idle = false
-    const service = new UpdateService(updater, () => idle)
+    const installOrder: string[] = []
+    updater.quitAndInstall.mockImplementation(() => installOrder.push('quit'))
+    const service = new UpdateService(updater, () => idle, () => installOrder.push('prepare'))
 
     await service.start()
     expect(updater.autoDownload).toBe(true)
@@ -30,6 +32,7 @@ describe('automatic update service', () => {
     service.notifyBusinessIdle()
     expect(service.getState()).toEqual({ status: 'installing' })
     expect(updater.quitAndInstall).toHaveBeenCalledWith(true, true)
+    expect(installOrder).toEqual(['prepare', 'quit'])
   })
 
   it('keeps the current version usable when update checks fail', async () => {

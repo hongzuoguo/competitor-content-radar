@@ -1,16 +1,26 @@
 import { app, BrowserWindow, shell, type Tray } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { join } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
 import { AppScheduler } from './scheduler'
 import { registerIpcHandlers } from './ipc'
 import { createAppTray } from './tray'
 import { createProductionRuntime, type ProductionRuntime } from './production-runtime'
+import { UpdateService, type UpdaterAdapter } from './update-service'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let production: ProductionRuntime | null = null
 let scheduler: AppScheduler | null = null
+let updateService: UpdateService | null = null
+
+function prepareToQuit(): void {
+  isQuitting = true
+  scheduler?.stop()
+  tray?.destroy()
+  production?.close()
+}
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -54,8 +64,17 @@ app.whenReady().then(() => {
   app.setAppUserModelId('com.contentradar.desktop')
   production = createProductionRuntime()
   const runtime = production.runtime
+  if (app.isPackaged) {
+    updateService = new UpdateService(
+      autoUpdater as unknown as UpdaterAdapter,
+      () => runtime.isBusinessIdle(),
+      prepareToQuit
+    )
+    runtime.onBusinessIdle(() => updateService?.notifyBusinessIdle())
+  }
   registerIpcHandlers(runtime)
   mainWindow = createMainWindow()
+  mainWindow.webContents.once('did-finish-load', () => { void updateService?.start() })
   tray = createAppTray({
     showWindow: () => {
       if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
@@ -64,7 +83,7 @@ app.whenReady().then(() => {
     },
     runNow: () => { void runtime.runNow() },
     quit: () => {
-      isQuitting = true
+      prepareToQuit()
       app.quit()
     }
   })
@@ -80,8 +99,5 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
-  isQuitting = true
-  scheduler?.stop()
-  tray?.destroy()
-  production?.close()
+  prepareToQuit()
 })

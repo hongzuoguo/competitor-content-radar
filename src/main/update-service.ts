@@ -28,7 +28,8 @@ export class UpdateService {
 
   constructor(
     private readonly updater: UpdaterAdapter,
-    private readonly isBusinessIdle: () => boolean
+    private readonly isBusinessIdle: () => boolean,
+    private readonly prepareInstall: () => void = () => undefined
   ) {
     this.bindEvents()
   }
@@ -59,6 +60,7 @@ export class UpdateService {
   notifyBusinessIdle(): void {
     if (!this.downloadedVersion || !this.isBusinessIdle()) return
     this.setState({ status: 'installing' })
+    this.prepareInstall()
     this.updater.quitAndInstall(true, true)
   }
 
