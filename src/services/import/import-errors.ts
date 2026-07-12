@@ -3,6 +3,7 @@ export type ImportErrorCode =
   | 'UNSUPPORTED_VIDEO_FORMAT'
   | 'INSUFFICIENT_DISK_SPACE'
   | 'MEDIA_COPY_FAILED'
+  | 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE'
 
 export interface ImportErrorOptions {
   action?: string

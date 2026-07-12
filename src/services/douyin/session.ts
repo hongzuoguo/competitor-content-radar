@@ -1,6 +1,6 @@
 import { BrowserWindow, session, type Debugger } from 'electron'
 import type { Work } from '../../core/domain'
-import { extractWorksFromPayload } from './discovery'
+import { extractWorkFromPayload, extractWorksFromPayload } from './discovery'
 import { deduplicateWorks, normalizeCreatorUrl } from './normalizers'
 import { withTimeout } from '../pipeline/timeout'
 
@@ -107,6 +107,65 @@ export class DouyinBrowserSession {
     }
   }
 
+  async captureSingleVideo(
+    videoId: string,
+    url: string
+  ): Promise<{ title: string; downloadUrl: string | null } | null> {
+    const canonicalUrl = `https://www.douyin.com/video/${videoId}`
+    if (url !== canonicalUrl || !/^\d+$/.test(videoId)) throw new Error('INVALID_DOUYIN_VIDEO_CAPTURE_REQUEST')
+    const window = new BrowserWindow({
+      width: 1200,
+      height: 820,
+      show: false,
+      webPreferences: {
+        session: this.persistentSession,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    })
+    const debuggerClient = window.webContents.debugger
+    const pending = new Set<Promise<void>>()
+    const captureState: { work: Work | null } = { work: null }
+    let riskControlled = false
+    const onMessage = (_event: Electron.Event, method: string, parameters: Record<string, unknown>): void => {
+      if (method !== 'Network.responseReceived') return
+      const response = parameters.response as { mimeType?: string; url?: string } | undefined
+      if (!response?.mimeType?.includes('json') || !response.url?.includes('douyin.com')) return
+      const task = this.captureSingleResponseBody(debuggerClient, String(parameters.requestId ?? ''), videoId)
+        .then((result) => {
+          if (result.riskControlled) riskControlled = true
+          if (result.work) captureState.work = result.work
+        })
+        .finally(() => pending.delete(task))
+      pending.add(task)
+    }
+
+    try {
+      await withTimeout(window.loadURL('about:blank'), 10_000, new Error('DOUYIN_WINDOW_INIT_TIMEOUT'))
+      if (!debuggerClient.isAttached()) debuggerClient.attach('1.3')
+      await withTimeout(debuggerClient.sendCommand('Network.enable'), 10_000, new Error('DOUYIN_DEBUGGER_TIMEOUT'))
+      debuggerClient.on('message', onMessage)
+      await withTimeout(window.loadURL(canonicalUrl), 30_000, new Error('DOUYIN_LOAD_TIMEOUT'))
+      await wait(8_000)
+      await Promise.allSettled([...pending])
+      const bodyText = await withTimeout(
+        window.webContents.executeJavaScript('document.body?.innerText?.slice(0, 4000) ?? ""', true) as Promise<string>,
+        10_000,
+        new Error('DOUYIN_PAGE_READ_TIMEOUT')
+      )
+      if (riskControlled || isRiskControlText(bodyText)) return null
+      return captureState.work
+        ? { title: captureState.work.title, downloadUrl: captureState.work.downloadUrl }
+        : null
+    } finally {
+      debuggerClient.removeListener('message', onMessage)
+      await Promise.allSettled([...pending])
+      if (debuggerClient.isAttached()) debuggerClient.detach()
+      if (!window.isDestroyed()) window.destroy()
+    }
+  }
+
   private async captureResponseBody(
     debuggerClient: Debugger,
     requestId: string,
@@ -123,4 +182,27 @@ export class DouyinBrowserSession {
       // Responses may be evicted before their body is read; the next captured response can still succeed.
     }
   }
+
+  private async captureSingleResponseBody(
+    debuggerClient: Debugger,
+    requestId: string,
+    videoId: string
+  ): Promise<{ work: Work | null; riskControlled: boolean }> {
+    try {
+      const result = await withTimeout(
+        debuggerClient.sendCommand('Network.getResponseBody', { requestId }),
+        10_000,
+        new Error('DOUYIN_RESPONSE_BODY_TIMEOUT')
+      ) as { body?: string }
+      if (!result.body) return { work: null, riskControlled: false }
+      if (isRiskControlText(result.body)) return { work: null, riskControlled: true }
+      return { work: extractWorkFromPayload(videoId, JSON.parse(result.body) as unknown), riskControlled: false }
+    } catch {
+      return { work: null, riskControlled: false }
+    }
+  }
+}
+
+function isRiskControlText(value: string): boolean {
+  return /验证码|安全验证|访问过于频繁|captcha|verify|risk.control/i.test(value)
 }

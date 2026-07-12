@@ -34,3 +34,29 @@ export function extractWorksFromPayload(creatorId: string, payload: unknown): Wo
     })
   return deduplicateWorks(works)
 }
+
+export function extractWorkFromPayload(videoId: string, payload: unknown): Work | null {
+  const candidates: Record<string, unknown>[] = []
+  collectRecords(payload, candidates)
+  for (const raw of candidates) {
+    const candidateId = String(raw.aweme_id ?? raw.awemeId ?? raw.id ?? '')
+    if (candidateId !== videoId) continue
+    try {
+      return normalizeDouyinWork('', raw)
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+function collectRecords(value: unknown, output: Record<string, unknown>[]): void {
+  if (!value || typeof value !== 'object') return
+  if (Array.isArray(value)) {
+    for (const item of value) collectRecords(item, output)
+    return
+  }
+  const record = value as Record<string, unknown>
+  output.push(record)
+  for (const nested of Object.values(record)) collectRecords(nested, output)
+}
