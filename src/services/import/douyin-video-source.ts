@@ -100,20 +100,33 @@ async function resolveInputUrl(input: string, resolver: ShortLinkResolver): Prom
       credentials: 'omit',
       signal: AbortSignal.timeout(10_000)
     })
-    const location = response.headers.get('location')
-    if (!location) throw new Error('DOUYIN_SHORT_URL_LOCATION_MISSING')
-    const next = new URL(location, current)
-    if (DIRECT_HOSTS.has(next.hostname)) return normalizeDouyinVideoUrl(next.toString())
-    if (
-      next.protocol !== 'https:' ||
-      next.port !== '' ||
-      next.username !== '' ||
-      next.password !== '' ||
-      next.hostname !== SHORT_HOST
-    ) throw new Error('DOUYIN_SHORT_URL_HOST_INVALID')
-    current = next
+    try {
+      if (response.status < 300 || response.status > 399) throw new Error('DOUYIN_SHORT_URL_STATUS_INVALID')
+      const location = response.headers.get('location')
+      if (!location) throw new Error('DOUYIN_SHORT_URL_LOCATION_MISSING')
+      const next = new URL(location, current)
+      if (DIRECT_HOSTS.has(next.hostname)) return normalizeDouyinVideoUrl(next.toString())
+      if (
+        next.protocol !== 'https:' ||
+        next.port !== '' ||
+        next.username !== '' ||
+        next.password !== '' ||
+        next.hostname !== SHORT_HOST
+      ) throw new Error('DOUYIN_SHORT_URL_HOST_INVALID')
+      current = next
+    } finally {
+      await cancelResponseBody(response)
+    }
   }
   throw new Error('DOUYIN_SHORT_URL_REDIRECT_LIMIT')
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch {
+    // Releasing a response is best-effort and must not mask URL validation failures.
+  }
 }
 
 function unavailableError(cause: unknown): ImportError {

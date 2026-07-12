@@ -67,7 +67,7 @@ export class DouyinBrowserSession {
       ): void => {
         if (method !== 'Network.responseReceived') return
         const response = parameters.response as { mimeType?: string; url?: string } | undefined
-        if (!response?.mimeType?.includes('json') || !response.url?.includes('douyin.com')) return
+        if (!isDouyinJsonResponse(response)) return
         const requestId = String(parameters.requestId ?? '')
         void this.captureResponseBody(debuggerClient, requestId, creatorId, captured)
       }
@@ -131,7 +131,7 @@ export class DouyinBrowserSession {
     const onMessage = (_event: Electron.Event, method: string, parameters: Record<string, unknown>): void => {
       if (method !== 'Network.responseReceived') return
       const response = parameters.response as { mimeType?: string; url?: string } | undefined
-      if (!response?.mimeType?.includes('json') || !response.url?.includes('douyin.com')) return
+      if (!isDouyinJsonResponse(response)) return
       const task = this.captureSingleResponseBody(debuggerClient, String(parameters.requestId ?? ''), videoId)
         .then((result) => {
           if (result.riskControlled) riskControlled = true
@@ -203,6 +203,16 @@ export class DouyinBrowserSession {
   }
 }
 
-function isRiskControlText(value: string): boolean {
-  return /验证码|安全验证|访问过于频繁|captcha|verify|risk.control/i.test(value)
+export function isRiskControlText(value: string): boolean {
+  return /验证码|安全验证|访问过于频繁|captcha(?:[_-]?challenge)?|risk[._-]?control/i.test(value)
+}
+
+export function isDouyinJsonResponse(response: { mimeType?: string; url?: string } | undefined): boolean {
+  if (!response?.mimeType?.toLowerCase().includes('json') || !response.url) return false
+  try {
+    const url = new URL(response.url)
+    return url.protocol === 'https:' && (url.hostname === 'douyin.com' || url.hostname.endsWith('.douyin.com'))
+  } catch {
+    return false
+  }
 }

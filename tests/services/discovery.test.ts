@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractWorksFromPayload } from '../../src/services/douyin/discovery'
+import { extractWorkFromPayload, extractWorksFromPayload } from '../../src/services/douyin/discovery'
 
 describe('Douyin discovery payload extraction', () => {
   it('extracts works from common aweme list response shapes', () => {
@@ -16,5 +16,23 @@ describe('Douyin discovery payload extraction', () => {
 
   it('ignores unrelated JSON responses', () => {
     expect(extractWorksFromPayload('creator-1', { status: 'ok' })).toEqual([])
+  })
+
+  it('ignores a parent generic id and finds the nested aweme', () => {
+    const work = extractWorkFromPayload('7658', {
+      id: '7658',
+      data: { aweme_detail: { aweme_id: '7658', desc: 'target', video: { play_addr: { url_list: ['https://media.test/7658'] } } } }
+    })
+
+    expect(work).toMatchObject({ platformWorkId: '7658', title: 'target', downloadUrl: 'https://media.test/7658' })
+  })
+
+  it('continues after an invalid matching candidate', () => {
+    const work = extractWorkFromPayload('7658', {
+      first: { aweme_id: '7658', create_time: Symbol('invalid') },
+      second: { aweme_id: '7658', desc: 'valid', video: { play_addr: { url_list: ['https://media.test/valid'] } } }
+    })
+
+    expect(work).toMatchObject({ platformWorkId: '7658', title: 'valid', downloadUrl: 'https://media.test/valid' })
   })
 })

@@ -39,15 +39,21 @@ export function extractWorkFromPayload(videoId: string, payload: unknown): Work 
   const candidates: Record<string, unknown>[] = []
   collectRecords(payload, candidates)
   for (const raw of candidates) {
+    if (!isAwemeCandidate(raw)) continue
     const candidateId = String(raw.aweme_id ?? raw.awemeId ?? raw.id ?? '')
     if (candidateId !== videoId) continue
     try {
       return normalizeDouyinWork('', raw)
     } catch {
-      return null
+      continue
     }
   }
   return null
+}
+
+function isAwemeCandidate(raw: Record<string, unknown>): boolean {
+  if (raw.aweme_id != null || raw.awemeId != null) return true
+  return raw.id != null && ['desc', 'title', 'video', 'statistics', 'create_time', 'createTime'].some((key) => key in raw)
 }
 
 function collectRecords(value: unknown, output: Record<string, unknown>[]): void {

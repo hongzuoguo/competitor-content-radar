@@ -62,6 +62,40 @@ describe('Douyin video URL import', () => {
     for (const [, init] of resolver.mock.calls) expect(init.credentials).toBe('omit')
   })
 
+  it('rejects a 200 response even when it has a Location header', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const resolver = vi.fn<ShortLinkResolver>().mockResolvedValueOnce(responseWithBody(200, 'https://www.douyin.com/video/9', cancel))
+
+    const error = await captureError(resolveDouyinVideo('https://v.douyin.com/A', { captureSingleVideo: vi.fn() }, resolver))
+
+    expect((error.cause as Error).message).toBe('DOUYIN_SHORT_URL_STATUS_INVALID')
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('cancels every redirect response body before returning the resolved URL', async () => {
+    const firstCancel = vi.fn().mockResolvedValue(undefined)
+    const finalCancel = vi.fn().mockResolvedValue(undefined)
+    const resolver = vi.fn<ShortLinkResolver>()
+      .mockResolvedValueOnce(responseWithBody(302, '/Next', firstCancel))
+      .mockResolvedValueOnce(responseWithBody(301, 'https://www.douyin.com/video/9', finalCancel))
+    const capture = { captureSingleVideo: vi.fn().mockResolvedValue({ title: 'nine', downloadUrl: 'https://media.test/9' }) }
+
+    await resolveDouyinVideo('https://v.douyin.com/A', capture, resolver)
+
+    expect(firstCancel).toHaveBeenCalledOnce()
+    expect(finalCancel).toHaveBeenCalledOnce()
+  })
+
+  it('cancels a response body on validation failure without masking the primary error', async () => {
+    const cancel = vi.fn().mockRejectedValue(new Error('cancel failed'))
+    const resolver = vi.fn<ShortLinkResolver>().mockResolvedValueOnce(responseWithBody(302, null, cancel))
+
+    const error = await captureError(resolveDouyinVideo('https://v.douyin.com/A', { captureSingleVideo: vi.fn() }, resolver))
+
+    expect((error.cause as Error).message).toBe('DOUYIN_SHORT_URL_LOCATION_MISSING')
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it.each([
     ['external redirect', ['https://evil.test/video/1']],
     ['profile redirect', ['https://www.douyin.com/user/abc']],
@@ -106,4 +140,12 @@ async function captureError(promise: Promise<unknown>): Promise<ImportError> {
     return error as ImportError
   }
   throw new Error('Expected an ImportError')
+}
+
+function responseWithBody(status: number, location: string | null, cancel: ReturnType<typeof vi.fn>): Response {
+  return {
+    status,
+    headers: new Headers(location ? { location } : {}),
+    body: { cancel }
+  } as unknown as Response
 }
