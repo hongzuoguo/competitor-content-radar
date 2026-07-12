@@ -110,5 +110,8 @@ export const MIGRATIONS = [
       transcript TEXT,
       updated_at TEXT NOT NULL
     );
+  `,
+  `
+    ALTER TABLE job_artifacts ADD COLUMN existing_work_id TEXT REFERENCES works(id) ON DELETE SET NULL;
   `
 ] as const

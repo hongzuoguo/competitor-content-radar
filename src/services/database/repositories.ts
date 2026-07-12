@@ -44,6 +44,7 @@ export interface JobArtifactRecord {
   workId: string
   wavPath: string | null
   transcript: string | null
+  existingWorkId: string | null
   updatedAt: string
 }
 
@@ -177,6 +178,13 @@ class WorkRepository {
   setMediaPath(id: string, mediaPath: string): void {
     this.database.prepare('UPDATE works SET media_path = ? WHERE id = ?').run(mediaPath, id)
   }
+
+  finalizeSource(id: string, work: Pick<Work, 'sourceKey' | 'mediaPath' | 'title' | 'originalUrl' | 'downloadUrl'>): void {
+    this.database.prepare(
+      `UPDATE works SET source_key = @sourceKey, media_path = @mediaPath, title = @title,
+       original_url = @originalUrl, download_url = @downloadUrl WHERE id = @id`
+    ).run({ id, ...work })
+  }
 }
 
 function workToParams(work: Work): Record<string, unknown> {
@@ -236,10 +244,11 @@ class JobArtifactRepository {
 
   save(record: JobArtifactRecord): void {
     this.database.prepare(
-      `INSERT INTO job_artifacts (work_id, wav_path, transcript, updated_at)
-       VALUES (@workId, @wavPath, @transcript, @updatedAt)
+      `INSERT INTO job_artifacts (work_id, wav_path, transcript, existing_work_id, updated_at)
+       VALUES (@workId, @wavPath, @transcript, @existingWorkId, @updatedAt)
        ON CONFLICT(work_id) DO UPDATE SET wav_path = excluded.wav_path,
-       transcript = excluded.transcript, updated_at = excluded.updated_at`
+       transcript = excluded.transcript, existing_work_id = excluded.existing_work_id,
+       updated_at = excluded.updated_at`
     ).run(record)
   }
 
@@ -249,6 +258,7 @@ class JobArtifactRepository {
       workId: String(row.work_id),
       wavPath: row.wav_path === null ? null : String(row.wav_path),
       transcript: row.transcript === null ? null : String(row.transcript),
+      existingWorkId: row.existing_work_id === null ? null : String(row.existing_work_id),
       updatedAt: String(row.updated_at)
     } : null
   }

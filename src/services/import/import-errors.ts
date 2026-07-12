@@ -7,6 +7,7 @@ export type ImportErrorCode =
   | 'INVALID_CREATOR'
   | 'JOB_NOT_RETRYABLE'
   | 'RUN_ALREADY_ACTIVE'
+  | 'INVALID_IMPORT_INPUT'
 
 export interface ImportErrorOptions {
   action?: string

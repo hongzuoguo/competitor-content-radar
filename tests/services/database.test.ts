@@ -19,9 +19,34 @@ describe('SQLite repositories', () => {
   afterEach(() => database.close())
 
   it('applies the latest schema exactly once', () => {
-    expect(database.schemaVersion).toBe(3)
+    expect(database.schemaVersion).toBe(4)
     database.migrate()
-    expect(database.schemaVersion).toBe(3)
+    expect(database.schemaVersion).toBe(4)
+  })
+
+  it('rolls back artifact and stage writes together when the transaction fails', () => {
+    repositories.works.upsert({
+      id: 'atomic-work', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'pending:atomic-work', mediaPath: 'video.mp4', title: 'atomic',
+      publishedAt: '2026-07-13T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'atomic-work', stage: 'downloaded', status: 'running', attemptCount: 1,
+      nextAttemptAt: null, errorCode: null, errorMessage: null, updatedAt: '2026-07-13T00:00:00.000Z'
+    })
+
+    expect(() => repositories.transaction(() => {
+      repositories.artifacts.save({
+        workId: 'atomic-work', wavPath: 'audio.wav', transcript: null,
+        existingWorkId: null, updatedAt: '2026-07-13T00:00:01.000Z'
+      })
+      repositories.jobs.saveStage('atomic-work', 'audio_extracted')
+      throw new Error('SECOND_WRITE_FAILED')
+    })).toThrow('SECOND_WRITE_FAILED')
+
+    expect(repositories.artifacts.get('atomic-work')).toBeNull()
+    expect(repositories.jobs.get('atomic-work')?.stage).toBe('downloaded')
   })
 
   it('migrates v1 works without losing related records', () => {
@@ -49,7 +74,7 @@ describe('SQLite repositories', () => {
     legacy.close()
 
     const migrated = new AppDatabase(path)
-    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.schemaVersion).toBe(4)
     expect(new AppRepositories(migrated.connection).works.findBySource('douyin_monitor', 'douyin:7658')?.id)
       .toBe('work-1')
     expect(migrated.connection.prepare('SELECT count(*) AS count FROM metric_snapshots').get()).toEqual({ count: 1 })
