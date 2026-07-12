@@ -24,12 +24,16 @@ export interface LocalFileDependencies {
   statfs(path: string): Promise<StatFsResult>
   copyFile(source: string, destination: string): Promise<void>
   link(existingPath: string, newPath: string): Promise<void>
+  mkdir(path: string): Promise<void>
+  rm(path: string): Promise<void>
 }
 
 const defaultDependencies: LocalFileDependencies = {
-  statfs: async (path) => statfs(path),
+  statfs: async (path) => statfs(path, { bigint: true }),
   copyFile: async (source, destination) => copyFile(source, destination),
-  link: async (existingPath, newPath) => link(existingPath, newPath)
+  link: async (existingPath, newPath) => link(existingPath, newPath),
+  mkdir: async (path) => mkdir(path, { recursive: true }).then(() => undefined),
+  rm: async (path) => rm(path, { force: true })
 }
 
 export async function ingestLocalFile(
@@ -68,17 +72,22 @@ export async function ingestLocalFile(
   }
 
   if (await isExistingFile(mediaPath)) {
-    if (await isValidPublishedFile(mediaPath, sourceStat.size)) return result
+    if (await isValidPublishedFile(mediaPath, sourceStat.size, digest)) return result
     throw new ImportError('MEDIA_COPY_FAILED', '已存储的视频文件不完整，请检查存储空间。', {
       action: '检查媒体存储后重试',
       retryable: true
     })
   }
 
-  await mkdir(destinationDirectory, { recursive: true })
-  const filesystem = await dependencies.statfs(mediaRoot)
+  let filesystem: StatFsResult
+  try {
+    await dependencies.mkdir(destinationDirectory)
+    filesystem = await dependencies.statfs(mediaRoot)
+  } catch (cause) {
+    throw mediaCopyError(cause)
+  }
   const availableBytes = BigInt(filesystem.bavail) * BigInt(filesystem.bsize)
-  if (availableBytes < BigInt(sourceStat.size) + DISK_RESERVE_BYTES) {
+  if (availableBytes <= BigInt(sourceStat.size) + DISK_RESERVE_BYTES) {
     throw new ImportError('INSUFFICIENT_DISK_SPACE', '磁盘可用空间不足，请清理空间后重试。', {
       action: '至少保留视频大小外加 100 MiB 可用空间',
       retryable: true
@@ -86,28 +95,32 @@ export async function ingestLocalFile(
   }
 
   const temporaryPath = join(destinationDirectory, `.tmp-${randomUUID()}`)
+  let operationError: unknown
   try {
     await dependencies.copyFile(sourcePath, temporaryPath)
     const copiedStat = await stat(temporaryPath)
-    if (!copiedStat.isFile() || copiedStat.size !== sourceStat.size) {
-      throw new Error('Copied file size does not match initial source size')
+    if (!copiedStat.isFile() || copiedStat.size !== sourceStat.size || (await sha256(temporaryPath)) !== digest) {
+      throw new Error('Copied file does not match the initially hashed source')
     }
 
     try {
       await dependencies.link(temporaryPath, mediaPath)
     } catch (cause) {
-      if (!isAlreadyExistsError(cause) || !(await isValidPublishedFile(mediaPath, sourceStat.size))) throw cause
+      if (!isAlreadyExistsError(cause) || !(await isValidPublishedFile(mediaPath, sourceStat.size, digest))) throw cause
     }
-    return result
   } catch (cause) {
-    throw new ImportError('MEDIA_COPY_FAILED', '视频复制失败，请重试。', {
-      action: '确认磁盘可写后重试',
-      retryable: true,
-      cause
-    })
-  } finally {
-    await rm(temporaryPath, { force: true }).catch(() => undefined)
+    operationError = cause
   }
+
+  const cleanupError = await removeTemporaryFile(temporaryPath, dependencies.rm)
+  if (operationError || cleanupError) {
+    const cause =
+      operationError && cleanupError
+        ? new AggregateError([operationError, cleanupError], 'Media copy and temporary cleanup failed')
+        : operationError ?? cleanupError
+    throw mediaCopyError(cause)
+  }
+  return result
 }
 
 async function statRegularFile(sourcePath: string) {
@@ -140,10 +153,10 @@ async function isExistingFile(path: string): Promise<boolean> {
   }
 }
 
-async function isValidPublishedFile(path: string, expectedSize: number): Promise<boolean> {
+async function isValidPublishedFile(path: string, expectedSize: number, expectedDigest: string): Promise<boolean> {
   try {
     const publishedStat = await stat(path)
-    return publishedStat.isFile() && publishedStat.size === expectedSize
+    return publishedStat.isFile() && publishedStat.size === expectedSize && (await sha256(path)) === expectedDigest
   } catch {
     return false
   }
@@ -151,4 +164,25 @@ async function isValidPublishedFile(path: string, expectedSize: number): Promise
 
 function isAlreadyExistsError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'EEXIST'
+}
+
+async function removeTemporaryFile(path: string, remove: (path: string) => Promise<void>): Promise<unknown> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await remove(path)
+      return undefined
+    } catch (cause) {
+      lastError = cause
+    }
+  }
+  return lastError
+}
+
+function mediaCopyError(cause: unknown): ImportError {
+  return new ImportError('MEDIA_COPY_FAILED', '视频复制失败，请重试。', {
+    action: '确认磁盘和媒体存储可用后重试',
+    retryable: true,
+    cause
+  })
 }

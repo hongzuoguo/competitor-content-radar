@@ -87,7 +87,7 @@ describe('local video ingestion', () => {
     await expectImportError(ingestLocalFile(directoryPath, mediaRoot), 'FILE_NOT_FOUND')
   })
 
-  it('checks available space including a 100 MiB reserve before copying', async () => {
+  it('rejects available space exactly equal to the file size plus 100 MiB reserve', async () => {
     const { sourceRoot, mediaRoot } = await createWorkspace()
     const sourcePath = join(sourceRoot, 'large.mp4')
     await writeFile(sourcePath, Buffer.alloc(16))
@@ -95,7 +95,7 @@ describe('local video ingestion', () => {
 
     await expectImportError(
       ingestLocalFile(sourcePath, mediaRoot, {
-        statfs: async () => ({ bavail: 100 * 1024 * 1024 + 15, bsize: 1 }),
+        statfs: async () => ({ bavail: 100 * 1024 * 1024 + 16, bsize: 1 }),
         copyFile: copy
       }),
       'INSUFFICIENT_DISK_SPACE'
@@ -140,12 +140,32 @@ describe('local video ingestion', () => {
     expect(await readdir(join(mediaRoot, digest))).toEqual([])
   })
 
+  it('rejects and cleans up when the source changes to different same-size content before copying', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'changing.mp4')
+    await writeFile(sourcePath, 'before')
+
+    await expectImportError(
+      ingestLocalFile(sourcePath, mediaRoot, {
+        statfs: async () => ({ bavail: 1_000_000_000n, bsize: 1n }),
+        copyFile: async (source, destination) => {
+          await writeFile(source, 'after!')
+          await copyFile(source, destination)
+        }
+      }),
+      'MEDIA_COPY_FAILED'
+    )
+
+    const digest = createHash('sha256').update('before').digest('hex')
+    expect(await readdir(join(mediaRoot, digest))).toEqual([])
+  })
+
   it('does not replace a valid final file published concurrently', async () => {
     const { sourceRoot, mediaRoot } = await createWorkspace()
     const sourcePath = join(sourceRoot, 'racing.mp4')
     await writeFile(sourcePath, 'source')
     const publish = vi.fn(async (temporaryPath: string, mediaPath: string) => {
-      await writeFile(mediaPath, 'rival!')
+      await writeFile(mediaPath, 'source')
       await link(temporaryPath, mediaPath)
     })
 
@@ -155,7 +175,7 @@ describe('local video ingestion', () => {
     })
 
     expect(publish).toHaveBeenCalledOnce()
-    await expect(readFile(imported.mediaPath, 'utf8')).resolves.toBe('rival!')
+    await expect(readFile(imported.mediaPath, 'utf8')).resolves.toBe('source')
     expect(await readdir(join(mediaRoot, imported.sourceKey.slice('sha256:'.length)))).toEqual(['video.mp4'])
   })
 
@@ -174,6 +194,92 @@ describe('local video ingestion', () => {
 
     await expect(readFile(mediaPath, 'utf8')).resolves.toBe('bad')
     expect(await readdir(destinationDirectory)).toEqual(['video.mp4'])
+  })
+
+  it('rejects a pre-existing final file with different same-size content', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'existing.mp4')
+    await writeFile(sourcePath, 'source')
+    const digest = createHash('sha256').update('source').digest('hex')
+    const destinationDirectory = join(mediaRoot, digest)
+    const mediaPath = join(destinationDirectory, 'video.mp4')
+    await mkdir(destinationDirectory, { recursive: true })
+    await writeFile(mediaPath, 'rival!')
+
+    await expectImportError(ingestLocalFile(sourcePath, mediaRoot), 'MEDIA_COPY_FAILED')
+    await expect(readFile(mediaPath, 'utf8')).resolves.toBe('rival!')
+  })
+
+  it('rejects different same-size content published concurrently without modifying it', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'racing.mp4')
+    await writeFile(sourcePath, 'source')
+    let competingPath = ''
+
+    await expectImportError(
+      ingestLocalFile(sourcePath, mediaRoot, {
+        statfs: async () => ({ bavail: 1_000_000_000n, bsize: 1n }),
+        link: async (temporaryPath, mediaPath) => {
+          competingPath = mediaPath
+          await writeFile(mediaPath, 'rival!')
+          await link(temporaryPath, mediaPath)
+        }
+      }),
+      'MEDIA_COPY_FAILED'
+    )
+
+    await expect(readFile(competingPath, 'utf8')).resolves.toBe('rival!')
+    expect(await readdir(join(mediaRoot, createHash('sha256').update('source').digest('hex')))).toEqual(['video.mp4'])
+  })
+
+  it('maps destination directory creation failures to a stable copy error', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'clip.mp4')
+    await writeFile(sourcePath, 'video')
+    const sensitivePath = join(mediaRoot, 'private')
+
+    const error = await captureImportError(
+      ingestLocalFile(sourcePath, mediaRoot, {
+        mkdir: async () => {
+          throw new Error(`denied: ${sensitivePath}`)
+        }
+      })
+    )
+    expect(error.code).toBe('MEDIA_COPY_FAILED')
+    expect(error.message).not.toContain(sensitivePath)
+  })
+
+  it('maps filesystem space inspection failures to a stable copy error', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'clip.mp4')
+    await writeFile(sourcePath, 'video')
+
+    await expectImportError(
+      ingestLocalFile(sourcePath, mediaRoot, {
+        statfs: async () => {
+          throw new Error('statfs denied')
+        }
+      }),
+      'MEDIA_COPY_FAILED'
+    )
+  })
+
+  it('retries temporary cleanup and does not report success when cleanup keeps failing', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'clip.mp4')
+    await writeFile(sourcePath, 'video')
+    const remove = vi.fn(async () => {
+      throw new Error('cleanup denied')
+    })
+
+    await expectImportError(
+      ingestLocalFile(sourcePath, mediaRoot, {
+        statfs: async () => ({ bavail: 1_000_000_000n, bsize: 1n }),
+        rm: remove
+      }),
+      'MEDIA_COPY_FAILED'
+    )
+    expect(remove).toHaveBeenCalledTimes(3)
   })
 })
 
