@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { copyFile, mkdir, rename, rm, stat, statfs } from 'node:fs/promises'
+import { copyFile, link, mkdir, rm, stat, statfs } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { ImportError } from './import-errors'
 
@@ -23,11 +23,13 @@ interface StatFsResult {
 export interface LocalFileDependencies {
   statfs(path: string): Promise<StatFsResult>
   copyFile(source: string, destination: string): Promise<void>
+  link(existingPath: string, newPath: string): Promise<void>
 }
 
 const defaultDependencies: LocalFileDependencies = {
   statfs: async (path) => statfs(path),
-  copyFile: async (source, destination) => copyFile(source, destination)
+  copyFile: async (source, destination) => copyFile(source, destination),
+  link: async (existingPath, newPath) => link(existingPath, newPath)
 }
 
 export async function ingestLocalFile(
@@ -85,11 +87,10 @@ export async function ingestLocalFile(
       throw new Error('Copied file size does not match initial source size')
     }
 
-    if (await isExistingFile(mediaPath)) return result
     try {
-      await rename(temporaryPath, mediaPath)
+      await dependencies.link(temporaryPath, mediaPath)
     } catch (cause) {
-      if (!(await isExistingFile(mediaPath))) throw cause
+      if (!isAlreadyExistsError(cause) || !(await isValidPublishedFile(mediaPath, sourceStat.size))) throw cause
     }
     return result
   } catch (cause) {
@@ -131,4 +132,17 @@ async function isExistingFile(path: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+async function isValidPublishedFile(path: string, expectedSize: number): Promise<boolean> {
+  try {
+    const publishedStat = await stat(path)
+    return publishedStat.isFile() && publishedStat.size === expectedSize
+  } catch {
+    return false
+  }
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'EEXIST'
 }

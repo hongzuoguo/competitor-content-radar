@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, link, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -138,6 +138,25 @@ describe('local video ingestion', () => {
 
     const digest = createHash('sha256').update('original').digest('hex')
     expect(await readdir(join(mediaRoot, digest))).toEqual([])
+  })
+
+  it('does not replace a valid final file published concurrently', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'racing.mp4')
+    await writeFile(sourcePath, 'source')
+    const publish = vi.fn(async (temporaryPath: string, mediaPath: string) => {
+      await writeFile(mediaPath, 'rival!')
+      await link(temporaryPath, mediaPath)
+    })
+
+    const imported = await ingestLocalFile(sourcePath, mediaRoot, {
+      statfs: async () => ({ bavail: 1_000_000_000, bsize: 1 }),
+      link: publish
+    })
+
+    expect(publish).toHaveBeenCalledOnce()
+    await expect(readFile(imported.mediaPath, 'utf8')).resolves.toBe('rival!')
+    expect(await readdir(join(mediaRoot, imported.sourceKey.slice('sha256:'.length)))).toEqual(['video.mp4'])
   })
 })
 
