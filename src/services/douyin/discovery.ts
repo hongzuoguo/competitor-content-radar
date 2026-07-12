@@ -43,7 +43,8 @@ export function extractWorkFromPayload(videoId: string, payload: unknown): Work 
     const candidateId = String(raw.aweme_id ?? raw.awemeId ?? raw.id ?? '')
     if (candidateId !== videoId) continue
     try {
-      return normalizeDouyinWork('', raw)
+      const work = normalizeDouyinWork('', raw)
+      if (work.downloadUrl?.trim()) return work
     } catch {
       continue
     }
@@ -59,9 +60,11 @@ function isAwemeCandidate(raw: Record<string, unknown>): boolean {
 function hasVideoAddress(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const video = value as Record<string, unknown>
-  const addresses = [video.play_addr, video.playAddress, video.download_addr, video.downloadAddress, video]
+  const addresses = [video.play_addr, video.playAddress, video.download_addr, video.downloadAddress]
   return addresses.some((address) => {
-    return Boolean(address) && typeof address === 'object' && Array.isArray((address as Record<string, unknown>).url_list)
+    if (!address || typeof address !== 'object') return false
+    const urls = (address as Record<string, unknown>).url_list
+    return Array.isArray(urls) && typeof urls[0] === 'string' && urls[0].trim().length > 0
   })
 }
 

@@ -37,12 +37,24 @@ describe('Douyin discovery payload extraction', () => {
     expect(work).toMatchObject({ title: 'deep work', downloadUrl: 'https://media.test/deep' })
   })
 
-  it('continues after an invalid matching candidate', () => {
+  it('continues after a matching aweme stub without a download URL', () => {
     const work = extractWorkFromPayload('7658', {
-      first: { aweme_id: '7658', create_time: Symbol('invalid') },
+      first: { aweme_id: '7658', desc: 'stub' },
       second: { aweme_id: '7658', desc: 'valid', video: { play_addr: { url_list: ['https://media.test/valid'] } } }
     })
 
     expect(work).toMatchObject({ platformWorkId: '7658', title: 'valid', downloadUrl: 'https://media.test/valid' })
+  })
+
+  it.each([
+    { play_addr: { url_list: [] } },
+    { url_list: ['https://media.test/unsupported'] }
+  ])('continues after a generic-id candidate with an unusable video address %#', (video) => {
+    const work = extractWorkFromPayload('7658', {
+      first: { id: '7658', desc: 'not a usable work', video },
+      second: { awemeId: '7658', desc: 'valid', video: { downloadAddress: { url_list: ['http://media.test/valid'] } } }
+    })
+
+    expect(work).toMatchObject({ title: 'valid', downloadUrl: 'http://media.test/valid' })
   })
 })
