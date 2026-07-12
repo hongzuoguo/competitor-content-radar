@@ -67,7 +67,13 @@ export async function ingestLocalFile(
     originalUrl: null
   }
 
-  if (await isExistingFile(mediaPath)) return result
+  if (await isExistingFile(mediaPath)) {
+    if (await isValidPublishedFile(mediaPath, sourceStat.size)) return result
+    throw new ImportError('MEDIA_COPY_FAILED', '已存储的视频文件不完整，请检查存储空间。', {
+      action: '检查媒体存储后重试',
+      retryable: true
+    })
+  }
 
   await mkdir(destinationDirectory, { recursive: true })
   const filesystem = await dependencies.statfs(mediaRoot)

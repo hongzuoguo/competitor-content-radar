@@ -158,6 +158,23 @@ describe('local video ingestion', () => {
     await expect(readFile(imported.mediaPath, 'utf8')).resolves.toBe('rival!')
     expect(await readdir(join(mediaRoot, imported.sourceKey.slice('sha256:'.length)))).toEqual(['video.mp4'])
   })
+
+  it('rejects a pre-existing final file with the wrong size without modifying it', async () => {
+    const { sourceRoot, mediaRoot } = await createWorkspace()
+    const sourcePath = join(sourceRoot, 'existing.mp4')
+    const contents = Buffer.from('complete-video')
+    await writeFile(sourcePath, contents)
+    const digest = createHash('sha256').update(contents).digest('hex')
+    const destinationDirectory = join(mediaRoot, digest)
+    const mediaPath = join(destinationDirectory, 'video.mp4')
+    await mkdir(destinationDirectory, { recursive: true })
+    await writeFile(mediaPath, 'bad')
+
+    await expectImportError(ingestLocalFile(sourcePath, mediaRoot), 'MEDIA_COPY_FAILED')
+
+    await expect(readFile(mediaPath, 'utf8')).resolves.toBe('bad')
+    expect(await readdir(destinationDirectory)).toEqual(['video.mp4'])
+  })
 })
 
 async function captureImportError(promise: Promise<unknown>): Promise<ImportError> {
