@@ -95,7 +95,11 @@ async function resolveInputUrl(input: string, resolver: ShortLinkResolver): Prom
     const requestUrl = current.toString()
     if (visited.has(requestUrl)) throw new Error('DOUYIN_SHORT_URL_LOOP')
     visited.add(requestUrl)
-    const response = await resolver(requestUrl, { redirect: 'manual', signal: AbortSignal.timeout(10_000) })
+    const response = await resolver(requestUrl, {
+      redirect: 'manual',
+      credentials: 'omit',
+      signal: AbortSignal.timeout(10_000)
+    })
     const location = response.headers.get('location')
     if (!location) throw new Error('DOUYIN_SHORT_URL_LOCATION_MISSING')
     const next = new URL(location, current)

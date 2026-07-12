@@ -59,6 +59,7 @@ describe('Douyin video URL import', () => {
 
     await expect(resolveDouyinVideo('https://v.douyin.com/First', capture, resolver)).resolves.toMatchObject({ sourceKey: 'douyin:9' })
     expect(resolver).toHaveBeenCalledTimes(2)
+    for (const [, init] of resolver.mock.calls) expect(init.credentials).toBe('omit')
   })
 
   it.each([
