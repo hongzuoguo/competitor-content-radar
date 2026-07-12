@@ -27,6 +27,16 @@ describe('Douyin discovery payload extraction', () => {
     expect(work).toMatchObject({ platformWorkId: '7658', title: 'target', downloadUrl: 'https://media.test/7658' })
   })
 
+  it('ignores a titled parent generic id and finds the nested video-shaped aweme', () => {
+    const work = extractWorkFromPayload('7658', {
+      id: '7658',
+      title: 'page title',
+      data: { aweme_detail: { aweme_id: '7658', desc: 'deep work', video: { play_addr: { url_list: ['https://media.test/deep'] } } } }
+    })
+
+    expect(work).toMatchObject({ title: 'deep work', downloadUrl: 'https://media.test/deep' })
+  })
+
   it('continues after an invalid matching candidate', () => {
     const work = extractWorkFromPayload('7658', {
       first: { aweme_id: '7658', create_time: Symbol('invalid') },

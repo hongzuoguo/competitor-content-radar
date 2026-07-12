@@ -53,7 +53,16 @@ export function extractWorkFromPayload(videoId: string, payload: unknown): Work 
 
 function isAwemeCandidate(raw: Record<string, unknown>): boolean {
   if (raw.aweme_id != null || raw.awemeId != null) return true
-  return raw.id != null && ['desc', 'title', 'video', 'statistics', 'create_time', 'createTime'].some((key) => key in raw)
+  return raw.id != null && hasVideoAddress(raw.video)
+}
+
+function hasVideoAddress(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const video = value as Record<string, unknown>
+  const addresses = [video.play_addr, video.playAddress, video.download_addr, video.downloadAddress, video]
+  return addresses.some((address) => {
+    return Boolean(address) && typeof address === 'object' && Array.isArray((address as Record<string, unknown>).url_list)
+  })
 }
 
 function collectRecords(value: unknown, output: Record<string, unknown>[]): void {
