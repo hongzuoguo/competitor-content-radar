@@ -1,0 +1,134 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { copyFile, mkdir, rename, rm, stat, statfs } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
+import { ImportError } from './import-errors'
+
+const SUPPORTED_EXTENSIONS = new Set(['.mp4', '.mov', '.mkv', '.webm'])
+const DISK_RESERVE_BYTES = 100n * 1024n * 1024n
+
+export interface ImportedMedia {
+  sourceType: 'local_file' | 'douyin_url'
+  sourceKey: string
+  title: string
+  mediaPath: string
+  originalUrl: string | null
+}
+
+interface StatFsResult {
+  bavail: number | bigint
+  bsize: number | bigint
+}
+
+export interface LocalFileDependencies {
+  statfs(path: string): Promise<StatFsResult>
+  copyFile(source: string, destination: string): Promise<void>
+}
+
+const defaultDependencies: LocalFileDependencies = {
+  statfs: async (path) => statfs(path),
+  copyFile: async (source, destination) => copyFile(source, destination)
+}
+
+export async function ingestLocalFile(
+  sourcePath: string,
+  mediaRoot: string,
+  optionalDependencies: Partial<LocalFileDependencies> = {}
+): Promise<ImportedMedia> {
+  const dependencies = { ...defaultDependencies, ...optionalDependencies }
+  const sourceStat = await statRegularFile(sourcePath)
+  const extension = extname(sourcePath).toLowerCase()
+  if (!SUPPORTED_EXTENSIONS.has(extension)) {
+    throw new ImportError('UNSUPPORTED_VIDEO_FORMAT', '不支持该视频格式，请选择 MP4、MOV、MKV 或 WebM 文件。', {
+      action: '选择受支持的视频文件'
+    })
+  }
+
+  let digest: string
+  try {
+    digest = await sha256(sourcePath)
+  } catch (cause) {
+    throw new ImportError('FILE_NOT_FOUND', '无法读取所选视频文件，请确认文件仍然存在。', {
+      action: '重新选择视频文件',
+      retryable: true,
+      cause
+    })
+  }
+
+  const destinationDirectory = join(mediaRoot, digest)
+  const mediaPath = join(destinationDirectory, `video${extension}`)
+  const result: ImportedMedia = {
+    sourceType: 'local_file',
+    sourceKey: `sha256:${digest}`,
+    title: basename(sourcePath),
+    mediaPath,
+    originalUrl: null
+  }
+
+  if (await isExistingFile(mediaPath)) return result
+
+  await mkdir(destinationDirectory, { recursive: true })
+  const filesystem = await dependencies.statfs(mediaRoot)
+  const availableBytes = BigInt(filesystem.bavail) * BigInt(filesystem.bsize)
+  if (availableBytes < BigInt(sourceStat.size) + DISK_RESERVE_BYTES) {
+    throw new ImportError('INSUFFICIENT_DISK_SPACE', '磁盘可用空间不足，请清理空间后重试。', {
+      action: '至少保留视频大小外加 100 MiB 可用空间',
+      retryable: true
+    })
+  }
+
+  const temporaryPath = join(destinationDirectory, `.tmp-${randomUUID()}`)
+  try {
+    await dependencies.copyFile(sourcePath, temporaryPath)
+    const copiedStat = await stat(temporaryPath)
+    if (!copiedStat.isFile() || copiedStat.size !== sourceStat.size) {
+      throw new Error('Copied file size does not match initial source size')
+    }
+
+    if (await isExistingFile(mediaPath)) return result
+    try {
+      await rename(temporaryPath, mediaPath)
+    } catch (cause) {
+      if (!(await isExistingFile(mediaPath))) throw cause
+    }
+    return result
+  } catch (cause) {
+    throw new ImportError('MEDIA_COPY_FAILED', '视频复制失败，请重试。', {
+      action: '确认磁盘可写后重试',
+      retryable: true,
+      cause
+    })
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined)
+  }
+}
+
+async function statRegularFile(sourcePath: string) {
+  try {
+    const sourceStat = await stat(sourcePath)
+    if (sourceStat.isFile()) return sourceStat
+  } catch (cause) {
+    throw new ImportError('FILE_NOT_FOUND', '无法读取所选视频文件，请确认文件仍然存在。', {
+      action: '重新选择视频文件',
+      retryable: true,
+      cause
+    })
+  }
+  throw new ImportError('FILE_NOT_FOUND', '所选路径不是有效的视频文件，请重新选择。', {
+    action: '选择一个视频文件'
+  })
+}
+
+async function sha256(path: string): Promise<string> {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
+  return hash.digest('hex')
+}
+
+async function isExistingFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
+}
