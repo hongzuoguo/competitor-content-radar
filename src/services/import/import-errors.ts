@@ -4,6 +4,9 @@ export type ImportErrorCode =
   | 'INSUFFICIENT_DISK_SPACE'
   | 'MEDIA_COPY_FAILED'
   | 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE'
+  | 'INVALID_CREATOR'
+  | 'JOB_NOT_RETRYABLE'
+  | 'RUN_ALREADY_ACTIVE'
 
 export interface ImportErrorOptions {
   action?: string

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppDatabase } from '../../src/services/database/database'
 import { DesktopRuntime } from '../../src/main/runtime'
 import type { Work } from '../../src/core/domain'
+import type { ImportService } from '../../src/services/import/import-service'
 
 describe('desktop runtime assembly', () => {
   let database: AppDatabase
@@ -80,5 +81,23 @@ describe('desktop runtime assembly', () => {
     await runtime.runNow()
     await vi.waitFor(() => expect(report).toHaveBeenCalledWith('error', '运行失败', expect.any(Error)))
     expect(report).toHaveBeenCalledWith('info', '开始采集博主', expect.objectContaining({ profileUrl: expect.any(String) }))
+  })
+
+  it('delegates import start and retry to the assembled import service', async () => {
+    const imports = {
+      start: vi.fn(async () => ({ accepted: true as const, workId: 'import-1' })),
+      retry: vi.fn(async () => ({ accepted: true as const, workId: 'import-1' }))
+    } as unknown as ImportService
+    const runtime = new DesktopRuntime(
+      database,
+      { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() },
+      imports
+    )
+
+    await expect(runtime.startImport({ type: 'local', path: 'clip.mp4', creatorId: null }))
+      .resolves.toEqual({ accepted: true, workId: 'import-1' })
+    await expect(runtime.retryImport('import-1')).resolves.toEqual({ accepted: true, workId: 'import-1' })
+    expect(imports.start).toHaveBeenCalledWith({ type: 'local', path: 'clip.mp4', creatorId: null })
+    expect(imports.retry).toHaveBeenCalledWith('import-1')
   })
 })

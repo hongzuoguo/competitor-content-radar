@@ -6,6 +6,7 @@ import { normalizeCreatorUrl, selectBaselineWorks, selectRecentWorks } from '../
 import { AppRepositories, type AnalysisRecord } from '../services/database/repositories'
 import type { AppDatabase } from '../services/database/database'
 import type { CreatorView, DashboardData, PublicSettings } from '../shared/ipc-contract'
+import type { ImportRequest, ImportService, ImportStartResult } from '../services/import/import-service'
 
 export interface ProcessedWork {
   transcript: string
@@ -46,9 +47,20 @@ export class DesktopRuntime {
 
   constructor(
     private readonly database: AppDatabase,
-    private readonly ports: RuntimePorts
+    private readonly ports: RuntimePorts,
+    private readonly imports?: ImportService
   ) {
     this.repositories = new AppRepositories(database.connection)
+  }
+
+  startImport(request: ImportRequest): Promise<ImportStartResult> {
+    if (!this.imports) throw new Error('IMPORT_SERVICE_UNAVAILABLE')
+    return this.imports.start(request)
+  }
+
+  retryImport(workId: string): Promise<ImportStartResult> {
+    if (!this.imports) throw new Error('IMPORT_SERVICE_UNAVAILABLE')
+    return this.imports.retry(workId)
   }
 
   async listCreators(): Promise<CreatorView[]> {

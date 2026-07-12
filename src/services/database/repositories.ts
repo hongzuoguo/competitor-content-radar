@@ -40,6 +40,13 @@ export interface JobRecord {
   updatedAt: string
 }
 
+export interface JobArtifactRecord {
+  workId: string
+  wavPath: string | null
+  transcript: string | null
+  updatedAt: string
+}
+
 function mapCreator(row: Record<string, unknown>): Creator {
   return {
     id: String(row.id),
@@ -90,6 +97,11 @@ class CreatorRepository {
       .prepare('SELECT * FROM creators ORDER BY created_at ASC')
       .all()
       .map((row) => mapCreator(row as Record<string, unknown>))
+  }
+
+  getById(id: string): Creator | null {
+    const row = this.database.prepare('SELECT * FROM creators WHERE id = ?').get(id) as Record<string, unknown> | undefined
+    return row ? mapCreator(row) : null
   }
 
   setEnabled(id: string, enabled: boolean): void {
@@ -156,6 +168,15 @@ class WorkRepository {
       .get(sourceType, sourceKey) as Record<string, unknown> | undefined
     return row ? mapWork(row) : null
   }
+
+  get(id: string): Work | null {
+    const row = this.database.prepare('SELECT * FROM works WHERE id = ?').get(id) as Record<string, unknown> | undefined
+    return row ? mapWork(row) : null
+  }
+
+  setMediaPath(id: string, mediaPath: string): void {
+    this.database.prepare('UPDATE works SET media_path = ? WHERE id = ?').run(mediaPath, id)
+  }
 }
 
 function workToParams(work: Work): Record<string, unknown> {
@@ -207,6 +228,29 @@ class JobRepository {
       .prepare('SELECT stage FROM processing_jobs WHERE work_id = ?')
       .get(workId) as { stage: WorkflowStage } | undefined
     return row?.stage ?? null
+  }
+}
+
+class JobArtifactRepository {
+  constructor(private readonly database: Database.Database) {}
+
+  save(record: JobArtifactRecord): void {
+    this.database.prepare(
+      `INSERT INTO job_artifacts (work_id, wav_path, transcript, updated_at)
+       VALUES (@workId, @wavPath, @transcript, @updatedAt)
+       ON CONFLICT(work_id) DO UPDATE SET wav_path = excluded.wav_path,
+       transcript = excluded.transcript, updated_at = excluded.updated_at`
+    ).run(record)
+  }
+
+  get(workId: string): JobArtifactRecord | null {
+    const row = this.database.prepare('SELECT * FROM job_artifacts WHERE work_id = ?').get(workId) as Record<string, unknown> | undefined
+    return row ? {
+      workId: String(row.work_id),
+      wavPath: row.wav_path === null ? null : String(row.wav_path),
+      transcript: row.transcript === null ? null : String(row.transcript),
+      updatedAt: String(row.updated_at)
+    } : null
   }
 }
 
@@ -378,8 +422,11 @@ export class AppRepositories {
   readonly snapshots: SnapshotRepository
   readonly analyses: AnalysisRepository
   readonly runs: RunRepository
+  readonly artifacts: JobArtifactRepository
+  private readonly database: Database.Database
 
   constructor(database: Database.Database) {
+    this.database = database
     this.creators = new CreatorRepository(database)
     this.works = new WorkRepository(database)
     this.jobs = new JobRepository(database)
@@ -387,5 +434,10 @@ export class AppRepositories {
     this.snapshots = new SnapshotRepository(database)
     this.analyses = new AnalysisRepository(database)
     this.runs = new RunRepository(database)
+    this.artifacts = new JobArtifactRepository(database)
+  }
+
+  transaction<T>(operation: () => T): T {
+    return this.database.transaction(operation)()
   }
 }

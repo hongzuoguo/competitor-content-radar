@@ -102,5 +102,13 @@ export const MIGRATIONS = [
     DROP TABLE works;
     ALTER TABLE works_v2 RENAME TO works;
     CREATE INDEX works_creator_published_idx ON works(creator_id, published_at DESC);
+  `,
+  `
+    CREATE TABLE job_artifacts (
+      work_id TEXT PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
+      wav_path TEXT,
+      transcript TEXT,
+      updated_at TEXT NOT NULL
+    );
   `
 ] as const

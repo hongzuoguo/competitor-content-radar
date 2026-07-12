@@ -19,9 +19,9 @@ describe('SQLite repositories', () => {
   afterEach(() => database.close())
 
   it('applies the latest schema exactly once', () => {
-    expect(database.schemaVersion).toBe(2)
+    expect(database.schemaVersion).toBe(3)
     database.migrate()
-    expect(database.schemaVersion).toBe(2)
+    expect(database.schemaVersion).toBe(3)
   })
 
   it('migrates v1 works without losing related records', () => {
@@ -49,7 +49,7 @@ describe('SQLite repositories', () => {
     legacy.close()
 
     const migrated = new AppDatabase(path)
-    expect(migrated.schemaVersion).toBe(2)
+    expect(migrated.schemaVersion).toBe(3)
     expect(new AppRepositories(migrated.connection).works.findBySource('douyin_monitor', 'douyin:7658')?.id)
       .toBe('work-1')
     expect(migrated.connection.prepare('SELECT count(*) AS count FROM metric_snapshots').get()).toEqual({ count: 1 })
