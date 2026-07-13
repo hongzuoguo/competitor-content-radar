@@ -1,7 +1,6 @@
 import { ImportError } from './import-errors'
+import { parseDouyinWorkUrl } from '../../shared/douyin-work-url'
 
-const DIRECT_HOSTS = new Set(['douyin.com', 'www.douyin.com'])
-const SHORT_HOST = 'v.douyin.com'
 const MAX_SHORT_LINK_REDIRECTS = 5
 
 export interface NormalizedDouyinVideoUrl {
@@ -29,24 +28,9 @@ export interface DouyinVideoDescriptor {
 export type ShortLinkResolver = (input: string, init: RequestInit) => Promise<Response>
 
 export function normalizeDouyinVideoUrl(input: string): NormalizedDouyinVideoUrl {
-  let url: URL
-  try {
-    url = new URL(input.trim())
-  } catch {
-    throw new Error('INVALID_DOUYIN_VIDEO_URL')
-  }
-  const match = /^\/video\/(\d+)\/?$/.exec(url.pathname)
-  if (
-    url.protocol !== 'https:' ||
-    url.port !== '' ||
-    url.username !== '' ||
-    url.password !== '' ||
-    !DIRECT_HOSTS.has(url.hostname) ||
-    !match
-  ) {
-    throw new Error('INVALID_DOUYIN_VIDEO_URL')
-  }
-  const videoId = match[1]
+  const parsed = parseDouyinWorkUrl(input)
+  if (!parsed || parsed.kind === 'short') throw new Error('INVALID_DOUYIN_VIDEO_URL')
+  const videoId = parsed.videoId
   return { videoId, canonicalUrl: `https://www.douyin.com/video/${videoId}` }
 }
 
@@ -72,24 +56,11 @@ export async function resolveDouyinVideo(
 }
 
 async function resolveInputUrl(input: string, resolver: ShortLinkResolver): Promise<NormalizedDouyinVideoUrl> {
-  let initial: URL
-  try {
-    initial = new URL(input.trim())
-  } catch {
-    throw new Error('INVALID_DOUYIN_VIDEO_URL')
-  }
-  if (initial.hostname !== SHORT_HOST) return normalizeDouyinVideoUrl(input)
-  if (
-    initial.protocol !== 'https:' ||
-    initial.port !== '' ||
-    initial.username !== '' ||
-    initial.password !== '' ||
-    !/^\/[^/]+\/?$/.test(initial.pathname)
-  ) {
-    throw new Error('INVALID_DOUYIN_SHORT_URL')
-  }
+  const parsed = parseDouyinWorkUrl(input)
+  if (!parsed) throw new Error('INVALID_DOUYIN_VIDEO_URL')
+  if (parsed.kind !== 'short') return normalizeDouyinVideoUrl(input)
 
-  let current = initial
+  let current = parsed.url
   const visited = new Set<string>()
   for (let redirect = 0; redirect < MAX_SHORT_LINK_REDIRECTS; redirect += 1) {
     const requestUrl = current.toString()
@@ -105,15 +76,10 @@ async function resolveInputUrl(input: string, resolver: ShortLinkResolver): Prom
       const location = response.headers.get('location')
       if (!location) throw new Error('DOUYIN_SHORT_URL_LOCATION_MISSING')
       const next = new URL(location, current)
-      if (DIRECT_HOSTS.has(next.hostname)) return normalizeDouyinVideoUrl(next.toString())
-      if (
-        next.protocol !== 'https:' ||
-        next.port !== '' ||
-        next.username !== '' ||
-        next.password !== '' ||
-        next.hostname !== SHORT_HOST
-      ) throw new Error('DOUYIN_SHORT_URL_HOST_INVALID')
-      current = next
+      const parsedNext = parseDouyinWorkUrl(next.toString())
+      if (!parsedNext) throw new Error('DOUYIN_SHORT_URL_HOST_INVALID')
+      if (parsedNext.kind !== 'short') return normalizeDouyinVideoUrl(next.toString())
+      current = parsedNext.url
     } finally {
       await cancelResponseBody(response)
     }

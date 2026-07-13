@@ -1,6 +1,7 @@
 import { FileVideo, Link2, Upload, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { CreatorView, ImportStartResult } from '../../../../shared/ipc-contract'
+import { parseDouyinWorkUrl } from '../../../../shared/douyin-work-url'
 import { Button } from '../../components/Button'
 
 type SourceType = 'local' | 'douyin_url'
@@ -214,11 +215,8 @@ function validateSource(sourceType: SourceType, localPath: string, rawUrl: strin
   const value = rawUrl.trim()
   if (!value) return '请粘贴抖音单条视频链接。'
   try {
-    const parsed = new URL(value)
-    const secure = parsed.protocol === 'https:' && !parsed.port && !parsed.username && !parsed.password
-    if (!secure) return '请输入有效的抖音链接，不支持凭据或自定义端口。'
-    if ((parsed.hostname === 'douyin.com' || parsed.hostname === 'www.douyin.com') && /^\/video\/\d+\/?$/.test(parsed.pathname)) return ''
-    if (parsed.hostname === 'v.douyin.com' && /^\/[^/]+\/?$/.test(parsed.pathname)) return ''
+    new URL(value)
+    if (parseDouyinWorkUrl(value)) return ''
     return '请输入抖音单条视频链接，不支持博主主页。'
   } catch {
     return '请输入有效的抖音链接。'

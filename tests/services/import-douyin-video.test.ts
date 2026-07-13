@@ -22,6 +22,30 @@ describe('Douyin video URL import', () => {
     })
   })
 
+  it('normalizes a work opened from a creator modal', () => {
+    expect(normalizeDouyinVideoUrl(
+      'https://www.douyin.com/user/self?from_tab_name=main&modal_id=7659607768617307402'
+    )).toEqual({
+      videoId: '7659607768617307402',
+      canonicalUrl: 'https://www.douyin.com/video/7659607768617307402'
+    })
+  })
+
+  it.each([
+    'https://www.douyin.com/user/self',
+    'https://www.douyin.com/user/self?modal_id=',
+    'https://www.douyin.com/user/self?modal_id=abc',
+    'https://www.douyin.com/user/self?modal_id=123&modal_id=456',
+    'https://www.douyin.com/user/self?modal_id=123&modal_id=123',
+    'https://evil.example/user/self?modal_id=123',
+    'https://name:secret@www.douyin.com/user/self?modal_id=123',
+    'https://www.douyin.com:444/user/self?modal_id=123',
+    'https://www.douyin.com/user/self/extra?modal_id=123',
+    'https://www.douyin.com/user/?modal_id=123'
+  ])('rejects non-work modal input %s', (input) => {
+    expect(() => normalizeDouyinVideoUrl(input)).toThrow('INVALID_DOUYIN_VIDEO_URL')
+  })
+
   it.each([
     'http://www.douyin.com/video/7658',
     'https://example.com/video/7658',

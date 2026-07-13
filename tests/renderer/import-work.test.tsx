@@ -81,8 +81,28 @@ describe('work import dialog', () => {
     expect(desktopApi.startImport).not.toHaveBeenCalled()
   })
 
+  it('accepts a work opened from a creator modal', async () => {
+    const modalUrl = 'https://www.douyin.com/user/self?from_tab_name=main&modal_id=7659607768617307402'
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
+    await waitForCreators()
+    fireEvent.change(screen.getByLabelText('抖音单条视频链接'), { target: { value: modalUrl } })
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+    await waitFor(() => expect(desktopApi.startImport).toHaveBeenCalledWith(expect.objectContaining({
+      source: { type: 'douyin_url', url: modalUrl }
+    })))
+  })
+
   it.each([
     'https://www.douyin.com/user/test?vid=7658288075461725474',
+    'https://www.douyin.com/user/test?modal_id=',
+    'https://www.douyin.com/user/test?modal_id=abc',
+    'https://www.douyin.com/user/test?modal_id=123&modal_id=456',
+    'https://www.douyin.com/user/test?modal_id=123&modal_id=123',
+    'https://www.douyin.com/user/test/extra?modal_id=123',
+    'https://user:pass@www.douyin.com/user/test?modal_id=123',
+    'https://www.douyin.com:444/user/test?modal_id=123',
     'https://foo.douyin.com/video/7658288075461725474',
     'https://v.douyin.com/',
     'https://v.douyin.com/a/b',
