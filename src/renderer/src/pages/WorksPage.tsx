@@ -20,37 +20,62 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   const [creators, setCreators] = useState<CreatorView[]>([])
   const [creatorLoadState, setCreatorLoadState] = useState<CreatorLoadState>('loading')
   const [message, setMessage] = useState('')
+  const [refreshWarning, setRefreshWarning] = useState('')
   const [focusedWorkId, setFocusedWorkId] = useState<string>()
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const mountedRef = useRef(false)
-  const requestRef = useRef(0)
   const pendingImportIdRef = useRef<string | undefined>(undefined)
+  const refreshRunningRef = useRef(false)
+  const refreshQueuedRef = useRef(false)
+  const queuedDuplicateCandidateRef = useRef<string | undefined>(undefined)
+  const hasSuccessfulLoadRef = useRef(false)
 
   const refreshWorks = useCallback(async (showLoading = false, duplicateCandidateId?: string): Promise<void> => {
     if (!mountedRef.current) return
-    const request = ++requestRef.current
-    if (showLoading && mountedRef.current) setLoadState('loading')
-    if (!window.desktopApi || typeof window.desktopApi.listWorks !== 'function') {
-      if (mountedRef.current && request === requestRef.current) { setAllWorks([]); setLoadState('ready') }
+    if (refreshRunningRef.current) {
+      refreshQueuedRef.current = true
+      if (duplicateCandidateId && duplicateCandidateId === pendingImportIdRef.current) {
+        queuedDuplicateCandidateRef.current = duplicateCandidateId
+      }
       return
     }
+    refreshRunningRef.current = true
+    let nextShowLoading = showLoading
+    let nextDuplicateCandidateId = duplicateCandidateId
     try {
-      const nextWorks = await window.desktopApi.listWorks()
-      if (!mountedRef.current || request !== requestRef.current) return
-      setAllWorks(nextWorks)
-      setLoadState('ready')
-      const duplicate = pendingImportIdRef.current && duplicateCandidateId === pendingImportIdRef.current
-        ? nextWorks.find((work) => work.id === duplicateCandidateId && work.errorCode === 'IMPORT_DUPLICATE' && work.existingWorkId)
-        : undefined
-      if (duplicate?.existingWorkId && nextWorks.some((work) => work.id === duplicate.existingWorkId)) {
-        pendingImportIdRef.current = undefined
-        setFocusedWorkId(duplicate.existingWorkId)
-        setFilter('all')
-        setQuery('')
-        setMessage('已存在相同作品，已为你定位到原作品。')
-      }
-    } catch {
-      if (mountedRef.current && request === requestRef.current) setLoadState('failed')
+      do {
+        refreshQueuedRef.current = false
+        queuedDuplicateCandidateRef.current = undefined
+        if (nextShowLoading) setLoadState('loading')
+        try {
+          const nextWorks = window.desktopApi && typeof window.desktopApi.listWorks === 'function'
+            ? await window.desktopApi.listWorks()
+            : []
+          if (!mountedRef.current) return
+          setAllWorks(nextWorks)
+          setLoadState('ready')
+          setRefreshWarning('')
+          hasSuccessfulLoadRef.current = true
+          const duplicate = pendingImportIdRef.current && nextDuplicateCandidateId === pendingImportIdRef.current
+            ? nextWorks.find((work) => work.id === nextDuplicateCandidateId && work.errorCode === 'IMPORT_DUPLICATE' && work.existingWorkId)
+            : undefined
+          if (duplicate?.existingWorkId && nextWorks.some((work) => work.id === duplicate.existingWorkId)) {
+            pendingImportIdRef.current = undefined
+            setFocusedWorkId(duplicate.existingWorkId)
+            setFilter('all')
+            setQuery('')
+            setMessage('已存在相同作品，已为你定位到原作品。')
+          }
+        } catch {
+          if (!mountedRef.current) return
+          if (hasSuccessfulLoadRef.current) setRefreshWarning('作品刷新失败，已保留上次结果。')
+          else setLoadState('failed')
+        }
+        nextShowLoading = false
+        nextDuplicateCandidateId = queuedDuplicateCandidateRef.current
+      } while (mountedRef.current && refreshQueuedRef.current)
+    } finally {
+      refreshRunningRef.current = false
     }
   }, [])
 
@@ -62,13 +87,13 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
       : () => undefined
     return () => {
       mountedRef.current = false
-      requestRef.current += 1
+      refreshQueuedRef.current = false
       unsubscribe()
     }
   }, [refreshWorks])
 
-  const works = useMemo(() => allWorks.filter((work) => {
-    if (work.errorCode === 'IMPORT_DUPLICATE') return false
+  const nonDuplicateWorks = useMemo(() => allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE'), [allWorks])
+  const works = useMemo(() => nonDuplicateWorks.filter((work) => {
     if (!`${work.creatorName}${work.title}`.toLocaleLowerCase('zh-CN').includes(query.trim().toLocaleLowerCase('zh-CN'))) return false
     if (filter === 'processing') return work.status === 'pending' || work.status === 'running'
     if (filter === 'failed') return work.status === 'failed'
@@ -76,7 +101,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     if (filter === 'viral') return work.status === 'completed' && work.reasons.includes('relative_viral')
     if (filter === 'value') return work.status === 'completed' && work.reasons.includes('high_reference_value')
     return true
-  }), [allWorks, filter, query])
+  }), [filter, nonDuplicateWorks, query])
 
   function openImport(options: { creatorId?: string | null; localPath?: string } = {}): void {
     setInitialCreatorId(options.creatorId)
@@ -130,6 +155,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     <div className="page workspace-page">
       <header className="page-heading"><div><h1>作品分析</h1><p>按表现信号筛选作品，沉淀可复用的选题、钩子和结构。</p></div><div className="page-heading__actions"><Button icon={<SlidersHorizontal size={16} />} variant="secondary">管理视图</Button><Button icon={<Plus size={16} />} onClick={() => openImport()} ref={importButtonRef}>导入作品</Button></div></header>
       {message ? <p aria-live="polite" className="page-message">{message}</p> : null}
+      {refreshWarning ? <p aria-live="polite" className="page-message">{refreshWarning}</p> : null}
       <div className="filter-bar">
         <div className="segmented" role="group" aria-label="作品筛选">
           <FilterButton current={filter} id="all" onSelect={setFilter}>全部</FilterButton>
@@ -144,10 +170,10 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
 
       {loadState === 'loading' ? <WorksLoading /> : null}
       {loadState === 'failed' ? <div className="works-state" role="alert"><strong>作品加载失败</strong><span>无法读取本地作品记录，请稍后重试。</span><Button onClick={() => void refreshWorks(true)} variant="secondary">重新加载</Button></div> : null}
-      {loadState === 'ready' && allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE').length === 0 ? <div className="works-state"><strong>还没有作品</strong><span>导入本地视频或单条抖音作品，完成后会在这里显示拆解结果。</span><Button onClick={() => openImport()}>导入第一个作品</Button></div> : null}
-      {loadState === 'ready' && allWorks.length > 0 && works.length === 0 ? <div className="works-state"><strong>没有符合条件的作品</strong><span>可以更换筛选条件或搜索关键词。</span></div> : null}
+      {loadState === 'ready' && nonDuplicateWorks.length === 0 ? <div className="works-state"><strong>还没有作品</strong><span>导入本地视频或单条抖音作品，完成后会在这里显示拆解结果。</span><Button onClick={() => openImport()}>导入第一个作品</Button></div> : null}
+      {loadState === 'ready' && nonDuplicateWorks.length > 0 && works.length === 0 ? <div className="works-state"><strong>没有符合条件的作品</strong><span>可以更换筛选条件或搜索关键词。</span></div> : null}
       {loadState === 'ready' && works.length > 0 ? (
-        <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断与进度</th><th><span className="visually-hidden">操作</span></th></tr></thead><tbody>{works.map((work) => <WorkStatusRow focusOnRender={focusedWorkId === work.id} key={work.id} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} work={work} />)}</tbody></table></div>
+        <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断与进度</th><th><span className="visually-hidden">操作</span></th></tr></thead><tbody>{works.map((work) => <WorkStatusRow focusOnRender={focusedWorkId === work.id} key={work.id} onFocusConsumed={(workId) => setFocusedWorkId((current) => current === workId ? undefined : current)} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} work={work} />)}</tbody></table></div>
       ) : null}
       {importOpen ? <ImportWorkDialog creatorLoadState={creatorLoadState} creators={creators} initialCreatorId={initialCreatorId} initialLocalPath={initialLocalPath} onAccepted={acceptImport} onClose={closeImport} onRetryCreators={() => void loadCreators()} /> : null}
     </div>

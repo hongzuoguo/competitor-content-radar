@@ -81,7 +81,7 @@ describe('work analysis library', () => {
     expect(retry).toBeDisabled()
   })
 
-  it('refreshes from work events, ignores stale requests, and unsubscribes on unmount', async () => {
+  it('coalesces burst events into one trailing refresh and ends on the newest state', async () => {
     let resolveStale!: (works: WorkListItem[]) => void
     desktopApi.listWorks = vi.fn()
       .mockResolvedValueOnce([processing])
@@ -89,15 +89,26 @@ describe('work analysis library', () => {
       .mockResolvedValueOnce([completed])
     const view = render(<WorksPage />)
     expect(await screen.findByText('本地样片')).toBeInTheDocument()
-    emitWorkChange?.('work-running')
-    emitWorkChange?.('work-running')
-    expect(await screen.findByText(completed.title)).toBeInTheDocument()
+    for (let index = 0; index < 20; index += 1) emitWorkChange?.('work-running')
+    await waitFor(() => expect(desktopApi.listWorks).toHaveBeenCalledTimes(2))
     resolveStale([failed])
-    await waitFor(() => expect(screen.queryByText('失败样片')).not.toBeInTheDocument())
+    expect(await screen.findByText(completed.title)).toBeInTheDocument()
+    expect(desktopApi.listWorks).toHaveBeenCalledTimes(3)
+    expect(screen.queryByText('失败样片')).not.toBeInTheDocument()
     view.unmount()
     expect(unsubscribe).toHaveBeenCalledOnce()
     emitWorkChange?.('work-running')
     expect(desktopApi.listWorks).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps the last successful list when a background refresh fails', async () => {
+    desktopApi.listWorks = vi.fn().mockResolvedValueOnce([completed]).mockRejectedValueOnce(new Error('database busy'))
+    render(<WorksPage />)
+    expect(await screen.findByText(completed.title)).toBeInTheDocument()
+    emitWorkChange?.(completed.id)
+    expect(await screen.findByText('作品刷新失败，已保留上次结果。')).toBeInTheDocument()
+    expect(screen.getByText(completed.title)).toBeInTheDocument()
+    expect(screen.queryByText('作品加载失败')).not.toBeInTheDocument()
   })
 
   it('preserves highlight filters and adds processing and failed filters', async () => {
@@ -158,6 +169,19 @@ describe('work analysis library', () => {
     emitWorkChange?.(pending.id)
     await waitFor(() => expect(desktopApi.listWorks).toHaveBeenCalledTimes(5))
     expect(search).toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: '处理中' }))
+    search.focus()
+    fireEvent.click(screen.getByRole('button', { name: '全部' }))
+    expect(screen.getByText(completed.title)).toBeInTheDocument()
+    expect(search).toHaveFocus()
+  })
+
+  it('shows only the primary empty state when storage contains duplicate placeholders', async () => {
+    const historical = { ...failed, id: 'historical-duplicate', errorCode: 'IMPORT_DUPLICATE', retryable: false, existingWorkId: 'deleted-original' }
+    desktopApi.listWorks = vi.fn().mockResolvedValue([historical])
+    render(<WorksPage />)
+    expect(await screen.findByText('还没有作品')).toBeInTheDocument()
+    expect(screen.queryByText('没有符合条件的作品')).not.toBeInTheDocument()
   })
 
   it('does not open local fallback when file selection is cancelled', async () => {
@@ -170,8 +194,8 @@ describe('work analysis library', () => {
     expect(screen.queryByRole('dialog', { name: '导入作品' })).not.toBeInTheDocument()
   })
 
-  it('selects a local fallback before opening and keeps the creator by id', async () => {
-    const unavailable = { ...failed, id: 'unavailable', creatorId: 'creator-1', creatorName: '重复名称', sourceType: 'douyin_url' as const, errorCode: 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE', retryable: false }
+  it('treats the real missing-media code as the same local-upload recovery', async () => {
+    const unavailable = { ...failed, id: 'unavailable', creatorId: 'creator-1', creatorName: '重复名称', sourceType: 'douyin_url' as const, errorCode: 'DOUYIN_MEDIA_URL_MISSING', retryable: false }
     desktopApi.listWorks = vi.fn().mockResolvedValue([unavailable])
     desktopApi.listCreators = vi.fn().mockResolvedValue([
       { id: 'creator-other', name: '重复名称', profileUrl: 'https://www.douyin.com/user/other', enabled: true, works: 1, lastRun: '刚刚', status: 'ready' },
@@ -188,6 +212,7 @@ describe('work analysis library', () => {
 
   it.each([
     ['DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE', 'discovered', '无法从该抖音作品获取可下载视频，请改为上传本地视频。'],
+    ['DOUYIN_MEDIA_URL_MISSING', 'discovered', '无法从该抖音作品获取可下载视频，请改为上传本地视频。'],
     ['APP_INTERRUPTED', 'transcribed', '应用上次在处理期间退出，请重试此任务。'],
     ['MEDIA_COPY_FAILED', 'discovered', '视频准备失败，请确认文件仍可读取并检查磁盘空间。'],
     ['ASR_FAILED', 'audio_extracted', '文字转写失败，请稍后重试。'],

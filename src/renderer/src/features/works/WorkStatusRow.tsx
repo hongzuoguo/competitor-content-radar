@@ -26,11 +26,13 @@ const FAILED_LABELS: Record<WorkListItem['stage'], string> = {
 
 export function WorkStatusRow({
   focusOnRender,
+  onFocusConsumed,
   onLocalFallback,
   onRetry,
   work
 }: {
   focusOnRender: boolean
+  onFocusConsumed(workId: string): void
   onLocalFallback(work: WorkListItem): void
   onRetry(workId: string): Promise<void>
   work: WorkListItem
@@ -40,8 +42,10 @@ export function WorkStatusRow({
   const [retryError, setRetryError] = useState('')
 
   useEffect(() => {
-    if (focusOnRender) rowRef.current?.focus()
-  }, [focusOnRender])
+    if (!focusOnRender) return
+    rowRef.current?.focus()
+    onFocusConsumed(work.id)
+  }, [focusOnRender, onFocusConsumed, work.id])
 
   async function retry(): Promise<void> {
     if (retrying) return
@@ -57,7 +61,7 @@ export function WorkStatusRow({
   }
 
   const active = work.status === 'pending' || work.status === 'running'
-  const unavailable = work.errorCode === 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE'
+  const unavailable = work.errorCode === 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE' || work.errorCode === 'DOUYIN_MEDIA_URL_MISSING'
   return (
     <tr className={focusOnRender ? 'work-row work-row--focused' : 'work-row'} ref={rowRef} tabIndex={-1}>
       <td><span className="work-title"><strong>{work.title}</strong><small>{work.creatorName}</small></span></td>
