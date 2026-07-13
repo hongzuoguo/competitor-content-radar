@@ -24,6 +24,7 @@ export interface DesktopApi {
   retryImport: (workId: string) => Promise<ImportStartResult>
   listWorks: () => Promise<WorkListItem[]>
   onWorkStateChanged: (listener: (workId: string) => void) => () => void
+  onWorkFocusRequested: (listener: (workId: string) => void) => () => void
 }
 
 const desktopApi: DesktopApi = {
@@ -54,6 +55,11 @@ const desktopApi: DesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, workId: string): void => listener(workId)
     ipcRenderer.on(IPC_CHANNELS.workStateChanged, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.workStateChanged, handler)
+  },
+  onWorkFocusRequested: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, workId: string): void => listener(workId)
+    ipcRenderer.on(IPC_CHANNELS.workFocusRequested, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workFocusRequested, handler)
   }
 }
 

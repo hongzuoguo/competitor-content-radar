@@ -314,4 +314,123 @@ describe('ImportService', () => {
       process.off('unhandledRejection', unhandled)
     }
   })
+
+  it('notifies after a completed import is persisted', async () => {
+    const notify = vi.fn(async () => undefined)
+    const service = new ImportService(dependencies({ notification: { notify } }))
+
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
+    if (!started.accepted) throw new Error('expected accepted import')
+    await service.shutdown()
+
+    expect(repositories.jobs.get(started.workId)?.status).toBe('completed')
+    expect(notify).toHaveBeenCalledWith({
+      workId: started.workId,
+      status: 'completed',
+      stage: 'completed',
+      errorCode: null,
+      retryable: false
+    })
+  })
+
+  it('notifies a failed stage without allowing notification errors to change persisted state', async () => {
+    const notify = vi.fn(async () => { throw new Error('notifications unavailable') })
+    const service = new ImportService(dependencies({
+      processor: {
+        extractAudio: vi.fn(async () => 'managed/audio.wav'),
+        transcribe: vi.fn(async () => 'words'),
+        analyze: vi.fn(async () => { throw Object.assign(new Error('AI failed'), { code: 'AI_FAILED' }) })
+      },
+      notification: { notify }
+    }))
+
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
+    if (!started.accepted) throw new Error('expected accepted import')
+    await service.shutdown()
+
+    expect(repositories.jobs.get(started.workId)).toMatchObject({
+      status: 'failed', stage: 'transcribed', errorCode: 'AI_FAILED'
+    })
+    expect(notify).toHaveBeenCalledWith({
+      workId: started.workId,
+      status: 'failed',
+      stage: 'transcribed',
+      errorCode: 'AI_FAILED',
+      retryable: true
+    })
+  })
+
+  it('waits for terminal cleanup before shutdown resolves', async () => {
+    let releaseCleanup!: () => void
+    const cleanup = new Promise<void>((resolve) => { releaseCleanup = resolve })
+    const afterSettled = vi.fn(() => cleanup)
+    const service = new ImportService(dependencies({ afterSettled }))
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
+    if (!started.accepted) throw new Error('expected accepted import')
+    await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('completed'))
+
+    let stopped = false
+    const shutdown = service.shutdown().then(() => { stopped = true })
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+    releaseCleanup()
+    await shutdown
+    expect(afterSettled).toHaveBeenCalledOnce()
+  })
+
+  it('runs cleanup once only after concurrent imports have all settled', async () => {
+    let releaseSecond!: () => void
+    const secondBlocked = new Promise<void>((resolve) => { releaseSecond = resolve })
+    let source = 0
+    const afterSettled = vi.fn()
+    const service = new ImportService(dependencies({
+      ingestLocal: vi.fn(async () => {
+        source += 1
+        return {
+          sourceType: 'local_file', sourceKey: `sha256:${source}`, title: `${source}.mp4`,
+          mediaPath: `managed/${source}/video.mp4`, originalUrl: null
+        }
+      }),
+      processor: {
+        extractAudio: vi.fn(async (_id, mediaPath) => {
+          if (mediaPath.includes('managed/2/')) await secondBlocked
+          return `${mediaPath}.wav`
+        }),
+        transcribe: vi.fn(async () => 'words'),
+        analyze: vi.fn(async () => ({ result: {}, provider: 'p', model: 'm', promptVersion: 'v1', tokenUsage: null }))
+      },
+      afterSettled
+    }))
+
+    const first = await service.start({ source: { type: 'local', path: 'one.mp4' }, creatorId: null })
+    const second = await service.start({ source: { type: 'local', path: 'two.mp4' }, creatorId: null })
+    await vi.waitFor(() => expect(repositories.jobs.get(first.workId)?.status).toBe('completed'))
+    expect(repositories.jobs.get(second.workId)?.status).toBe('running')
+    expect(afterSettled).not.toHaveBeenCalled()
+
+    releaseSecond()
+    await service.shutdown()
+    expect(afterSettled).toHaveBeenCalledOnce()
+  })
+
+  it('marks interrupted work retryable without automatically running it', () => {
+    repositories.works.upsert({
+      id: 'interrupted', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'sha256:ready', mediaPath: 'managed/ready/video.mp4', title: 'Ready',
+      publishedAt: '2026-07-01T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'interrupted', stage: 'downloaded', status: 'running', attemptCount: 1,
+      nextAttemptAt: null, errorCode: null, errorMessage: null, updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    const deps = dependencies()
+    const service = new ImportService(deps)
+
+    service.reconcileInterruptedJobs()
+
+    expect(repositories.jobs.get('interrupted')).toMatchObject({ status: 'failed', errorCode: 'APP_INTERRUPTED' })
+    expect(service.isRetryable('interrupted')).toBe(true)
+    expect(deps.processor.extractAudio).not.toHaveBeenCalled()
+  })
 })

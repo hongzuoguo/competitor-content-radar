@@ -8,7 +8,7 @@ import { AppRepositories } from '../services/database/repositories'
 import { DouyinBrowserSession } from '../services/douyin/session'
 import { downloadMedia } from '../services/media/downloader'
 import { extractWav } from '../services/media/ffmpeg'
-import { cleanupExpiredMedia } from '../services/media/cleanup'
+import { cleanupExpiredMedia, createMediaCleanupOptions } from '../services/media/cleanup'
 import { ModelManager, type ModelFileManifest } from '../services/asr/model-manager'
 import { transcribeWithSenseVoice } from '../services/asr/sensevoice'
 import { SecretStore } from '../services/secrets/secret-store'
@@ -19,7 +19,7 @@ import { ANALYSIS_PROMPT_VERSION } from '../services/ai/prompt'
 import { DesktopRuntime, type ProcessedWork, type RuntimePorts } from './runtime'
 import type { Work } from '../core/domain'
 import type { PublicSettings } from '../shared/ipc-contract'
-import { ImportService, type WorkProcessor } from '../services/import/import-service'
+import { ImportService, type ImportNotificationPort, type WorkProcessor } from '../services/import/import-service'
 import { ingestLocalFile } from '../services/import/local-file-source'
 import { resolveDouyinVideo } from '../services/import/douyin-video-source'
 
@@ -33,7 +33,11 @@ export interface ProductionRuntime {
   close(): Promise<void>
 }
 
-export function createProductionRuntime(): ProductionRuntime {
+export interface ProductionRuntimeOptions {
+  notification?: ImportNotificationPort
+}
+
+export function createProductionRuntime(options: ProductionRuntimeOptions = {}): ProductionRuntime {
   const userData = app.getPath('userData')
   const mediaDirectory = join(userData, 'media')
   const database = new AppDatabase(join(userData, 'content-radar.db'))
@@ -110,10 +114,18 @@ export function createProductionRuntime(): ProductionRuntime {
     }
   }
 
-  try {
-    cleanupExpiredMedia(mediaDirectory)
-  } catch {
-    // The directory does not exist on first start.
+  function cleanupManagedMedia(): void {
+    try {
+      const settings = repositories.settings.get<PublicSettings>('app.publicSettings')
+      cleanupExpiredMedia(mediaDirectory, createMediaCleanupOptions({
+        retentionDays: settings?.mediaRetentionDays,
+        works: repositories.works.listAll(),
+        jobs: repositories.jobs.list(),
+        artifacts: repositories.artifacts.list()
+      }))
+    } catch {
+      log.warn('Managed media cleanup failed', { errorCode: 'MEDIA_CLEANUP_FAILED' })
+    }
   }
 
   const ports: RuntimePorts = {
@@ -131,9 +143,12 @@ export function createProductionRuntime(): ProductionRuntime {
     download: downloadMedia,
     processor,
     getSettings: () => repositories.settings.get<PublicSettings>('app.publicSettings') ?? {},
+    notification: options.notification,
+    afterSettled: cleanupManagedMedia,
     report: ports.report
   })
   imports.reconcileInterruptedJobs()
+  cleanupManagedMedia()
   const runtime = new DesktopRuntime(database, ports, imports)
   return {
     runtime,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ on: vi.fn(), removeListener: vi.fn(), invoke: vi.fn(), exposedApi: undefined as
   { onWorkStateChanged(listener: (workId: string) => void): () => void
+    onWorkFocusRequested(listener: (workId: string) => void): () => void
     startImport(request: unknown): Promise<unknown>
     getPathForFile(file: File): string } | undefined,
   getPathForFile: vi.fn() }))
@@ -32,6 +33,17 @@ describe('preload work events', () => {
     unsubscribe()
 
     expect(mocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.workStateChanged, handler)
+  })
+
+  it('removes the exact handler registered for notification work focus', () => {
+    const listener = vi.fn()
+    const unsubscribe = mocks.exposedApi!.onWorkFocusRequested(listener)
+    const handler = mocks.on.mock.calls.find(([channel]) => channel === IPC_CHANNELS.workFocusRequested)?.[1]
+    expect(handler).toBeTypeOf('function')
+
+    unsubscribe()
+
+    expect(mocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.workFocusRequested, handler)
   })
 
   it('reconstructs stable import error metadata from the serialized envelope', async () => {

@@ -22,7 +22,8 @@ describe('desktop IPC contract', () => {
       importStart: 'imports:start',
       importRetry: 'imports:retry',
       workList: 'works:list',
-      workStateChanged: 'works:state-changed'
+      workStateChanged: 'works:state-changed',
+      workFocusRequested: 'works:focus-requested'
     })
   })
 })

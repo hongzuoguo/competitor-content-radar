@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell, type Tray } from 'electron'
+import { app, BrowserWindow, dialog, Notification, shell, type Tray } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import log from 'electron-log/main'
 import { join } from 'node:path'
@@ -9,6 +9,7 @@ import { registerIpcHandlers } from './ipc'
 import { createAppTray } from './tray'
 import { createProductionRuntime, type ProductionRuntime } from './production-runtime'
 import { UpdateService, type UpdaterAdapter } from './update-service'
+import { ImportNotificationController } from './import-notifications'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -18,13 +19,27 @@ let quitPromise: Promise<void> | null = null
 let production: ProductionRuntime | null = null
 let scheduler: AppScheduler | null = null
 let updateService: UpdateService | null = null
+let importNotifications: ImportNotificationController | null = null
+let unsubscribeWorkState: (() => void) | null = null
+let unsubscribeBusinessIdle: (() => void) | null = null
+let unsubscribeUpdateState: (() => void) | null = null
 
 function prepareToQuit(): Promise<void> {
   quitPromise ??= (async () => {
     isQuitting = true
     scheduler?.stop()
     tray?.destroy()
-    await production?.close()
+    unsubscribeWorkState?.()
+    unsubscribeWorkState = null
+    unsubscribeBusinessIdle?.()
+    unsubscribeBusinessIdle = null
+    unsubscribeUpdateState?.()
+    unsubscribeUpdateState = null
+    try {
+      await production?.close()
+    } finally {
+      importNotifications?.close()
+    }
   })()
   return quitPromise
 }
@@ -76,10 +91,27 @@ function createMainWindow(): BrowserWindow {
   return window
 }
 
+function focusImportedWork(workId: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
+  mainWindow.show()
+  mainWindow.focus()
+  const send = (): void => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.workFocusRequested, workId)
+    }
+  }
+  if (mainWindow.webContents.isLoading()) mainWindow.webContents.once('did-finish-load', send)
+  else send()
+}
+
 app.whenReady().then(() => {
   app.setName(APP_METADATA.productName)
   app.setAppUserModelId('com.contentradar.desktop')
-  production = createProductionRuntime()
+  importNotifications = new ImportNotificationController(
+    Notification.isSupported() ? (options) => new Notification(options) : null,
+    focusImportedWork
+  )
+  production = createProductionRuntime({ notification: importNotifications })
   const runtime = production.runtime
   if (app.isPackaged) {
     log.transports.file.level = 'info'
@@ -93,12 +125,12 @@ app.whenReady().then(() => {
       },
       () => app.exit(1)
     )
-    runtime.onBusinessIdle(() => updateService?.notifyBusinessIdle())
+    unsubscribeBusinessIdle = runtime.onBusinessIdle(() => updateService?.notifyBusinessIdle())
   }
   registerIpcHandlers(runtime, updateService ?? undefined, dialog)
   mainWindow = createMainWindow()
-  updateService?.subscribe((state) => mainWindow?.webContents.send(IPC_CHANNELS.updateStateChanged, state))
-  runtime.onWorkStateChanged((workId) => {
+  unsubscribeUpdateState = updateService?.subscribe((state) => mainWindow?.webContents.send(IPC_CHANNELS.updateStateChanged, state)) ?? null
+  unsubscribeWorkState = runtime.onWorkStateChanged((workId) => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.workStateChanged, workId)
     }

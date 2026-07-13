@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { OverviewPage } from './pages/OverviewPage'
 import { CreatorsPage } from './pages/CreatorsPage'
@@ -10,6 +11,14 @@ import { SetupWizard, type SetupValues } from './features/onboarding/SetupWizard
 export function App(): React.JSX.Element {
   const location = useLocation()
   const navigate = useNavigate()
+  const [requestedWorkId, setRequestedWorkId] = useState<string>()
+  useEffect(() => {
+    if (typeof window.desktopApi?.onWorkFocusRequested !== 'function') return
+    return window.desktopApi.onWorkFocusRequested((workId) => {
+      setRequestedWorkId(workId)
+      navigate('/works')
+    })
+  }, [navigate])
   async function completeSetup(values: SetupValues): Promise<void> {
     await window.desktopApi?.saveSettings(values)
     await window.desktopApi?.addCreator(values.creatorUrl)
@@ -23,7 +32,7 @@ export function App(): React.JSX.Element {
       <Routes>
         <Route path="/" element={<OverviewPage />} />
         <Route path="/creators" element={<CreatorsPage />} />
-        <Route path="/works" element={<WorksPage />} />
+        <Route path="/works" element={<WorksPage requestedWorkId={requestedWorkId} />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate replace to="/" />} />

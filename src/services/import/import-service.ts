@@ -19,6 +19,18 @@ export interface WorkProcessor {
   analyze(workId: string, transcript: string, settings: unknown): Promise<AnalysisOutput>
 }
 
+export interface ImportTerminalNotification {
+  workId: string
+  status: 'completed' | 'failed'
+  stage: WorkflowStage
+  errorCode: string | null
+  retryable: boolean
+}
+
+export interface ImportNotificationPort {
+  notify(notification: ImportTerminalNotification): Promise<void> | void
+}
+
 export interface ImportServiceDependencies {
   repositories: AppRepositories
   mediaRoot: string
@@ -27,6 +39,8 @@ export interface ImportServiceDependencies {
   download(url: string, destination: string): Promise<unknown>
   processor: WorkProcessor
   getSettings(): unknown
+  notification?: ImportNotificationPort
+  afterSettled?(): Promise<void> | void
   report?(level: 'info' | 'error', message: string, detail?: unknown): void
 }
 
@@ -128,7 +142,7 @@ export class ImportService {
   private launch(workId: string, request?: ImportRequest): void {
     this.active.add(workId)
     const operation = this.prepareAndProcess(workId, request)
-    const terminal = operation.catch((error: unknown) => {
+    const terminal = operation.catch(async (error: unknown) => {
       const code = errorCode(error)
       let stage: WorkflowStage = 'discovered'
       try {
@@ -142,13 +156,21 @@ export class ImportService {
       } catch {
         // Shutdown waits for this terminal chain before the database is closed.
       }
+      await this.notifyTerminal(workId, 'failed', stage, code)
       try {
         this.dependencies.report?.('error', 'Import processing failed', { workId, stage, errorCode: code })
       } catch {
         // Logging failures must not create an unhandled rejection.
       }
-    }).catch(() => undefined).finally(() => {
+    }).catch(() => undefined).finally(async () => {
       this.active.delete(workId)
+      if (this.active.size === 0) {
+        try {
+          await this.dependencies.afterSettled?.()
+        } catch {
+          // Cleanup is best-effort and cannot change persisted job state.
+        }
+      }
       this.activePromises.delete(workId)
       this.pendingRequests.delete(workId)
     })
@@ -258,6 +280,7 @@ export class ImportService {
         this.stage(workId, 'completed', 'completed')
       })
       this.emit(workId)
+      await this.notifyTerminal(workId, 'completed', 'completed', null)
       return
     }
     this.stage(workId, 'completed', 'completed')
@@ -281,6 +304,26 @@ export class ImportService {
       } catch {
         // A destroyed renderer must not affect committed import state.
       }
+    }
+  }
+
+  private async notifyTerminal(
+    workId: string,
+    status: ImportTerminalNotification['status'],
+    stage: WorkflowStage,
+    errorCode: string | null
+  ): Promise<void> {
+    if (!this.dependencies.notification) return
+    try {
+      await this.dependencies.notification.notify({
+        workId,
+        status,
+        stage,
+        errorCode,
+        retryable: status === 'failed' && this.isRetryable(workId)
+      })
+    } catch {
+      // Desktop notifications are optional and must never fail an import.
     }
   }
 }

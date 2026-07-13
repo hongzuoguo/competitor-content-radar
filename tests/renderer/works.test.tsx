@@ -286,4 +286,12 @@ describe('work analysis library', () => {
     expect(await screen.findByText(/任务已启动/)).toBeInTheDocument()
     expect(await screen.findByText('本地样片')).toBeInTheDocument()
   })
+
+  it('focuses a work requested by a desktop notification after loading', async () => {
+    desktopApi.listWorks = vi.fn().mockResolvedValue([completed])
+    render(<WorksPage requestedWorkId={completed.id} />)
+
+    const row = await screen.findByRole('row', { name: new RegExp(completed.title) })
+    await waitFor(() => expect(row).toHaveFocus())
+  })
 })

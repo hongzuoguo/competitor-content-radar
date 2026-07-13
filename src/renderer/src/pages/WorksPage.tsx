@@ -9,7 +9,10 @@ import './workspace-pages.css'
 type WorkFilter = 'all' | 'high-likes' | 'viral' | 'value' | 'processing' | 'failed'
 type LoadState = 'loading' | 'ready' | 'failed'
 
-export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: ImportStartResult): void } = {}): React.JSX.Element {
+export function WorksPage({ onImportAccepted, requestedWorkId }: {
+  onImportAccepted?(result: ImportStartResult): void
+  requestedWorkId?: string
+} = {}): React.JSX.Element {
   const [filter, setFilter] = useState<WorkFilter>('all')
   const [query, setQuery] = useState('')
   const [allWorks, setAllWorks] = useState<WorkListItem[]>([])
@@ -30,6 +33,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   const refreshQueuedRef = useRef(false)
   const queuedDuplicateCandidateRef = useRef<string | undefined>(undefined)
   const hasSuccessfulLoadRef = useRef(false)
+  const handledFocusRequestRef = useRef<string | undefined>(undefined)
 
   const cancelFocusRestore = useCallback((): void => {
     if (focusRestoreFrameRef.current === null) return
@@ -100,6 +104,15 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
       unsubscribe()
     }
   }, [cancelFocusRestore, refreshWorks])
+
+  useEffect(() => {
+    if (!requestedWorkId || handledFocusRequestRef.current === requestedWorkId) return
+    if (!allWorks.some((work) => work.id === requestedWorkId && work.errorCode !== 'IMPORT_DUPLICATE')) return
+    handledFocusRequestRef.current = requestedWorkId
+    setFilter('all')
+    setQuery('')
+    setFocusedWorkId(requestedWorkId)
+  }, [allWorks, requestedWorkId])
 
   const nonDuplicateWorks = useMemo(() => allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE'), [allWorks])
   const works = useMemo(() => nonDuplicateWorks.filter((work) => {
