@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, type Tray } from 'electron'
+import { app, BrowserWindow, dialog, shell, type Tray } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import log from 'electron-log/main'
 import { join } from 'node:path'
@@ -95,9 +95,14 @@ app.whenReady().then(() => {
     )
     runtime.onBusinessIdle(() => updateService?.notifyBusinessIdle())
   }
-  registerIpcHandlers(runtime, updateService ?? undefined)
+  registerIpcHandlers(runtime, updateService ?? undefined, dialog)
   mainWindow = createMainWindow()
   updateService?.subscribe((state) => mainWindow?.webContents.send(IPC_CHANNELS.updateStateChanged, state))
+  runtime.onWorkStateChanged((workId) => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.workStateChanged, workId)
+    }
+  })
   void updateService?.start()
   tray = createAppTray({
     showWindow: () => {

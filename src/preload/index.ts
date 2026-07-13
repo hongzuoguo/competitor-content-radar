@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type DashboardData, type UpdateState } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type DashboardData, type ImportRequest, type ImportStartResult, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
 import type { CreatorView, PublicSettings } from '../shared/ipc-contract'
 
 export interface DesktopApi {
@@ -18,6 +18,11 @@ export interface DesktopApi {
   getUpdateState: () => Promise<UpdateState>
   retryUpdate: () => Promise<void>
   onUpdateState: (listener: (state: UpdateState) => void) => () => void
+  pickLocalVideo: () => Promise<string | null>
+  startImport: (request: ImportRequest) => Promise<ImportStartResult>
+  retryImport: (workId: string) => Promise<ImportStartResult>
+  listWorks: () => Promise<WorkListItem[]>
+  onWorkStateChanged: (listener: (workId: string) => void) => () => void
 }
 
 const desktopApi: DesktopApi = {
@@ -38,6 +43,15 @@ const desktopApi: DesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, state: UpdateState): void => listener(state)
     ipcRenderer.on(IPC_CHANNELS.updateStateChanged, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.updateStateChanged, handler)
+  },
+  pickLocalVideo: () => ipcRenderer.invoke(IPC_CHANNELS.importPickLocal),
+  startImport: (request) => ipcRenderer.invoke(IPC_CHANNELS.importStart, request),
+  retryImport: (workId) => ipcRenderer.invoke(IPC_CHANNELS.importRetry, workId),
+  listWorks: () => ipcRenderer.invoke(IPC_CHANNELS.workList),
+  onWorkStateChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, workId: string): void => listener(workId)
+    ipcRenderer.on(IPC_CHANNELS.workStateChanged, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workStateChanged, handler)
   }
 }
 

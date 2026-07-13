@@ -17,7 +17,12 @@ describe('desktop IPC contract', () => {
       settingsSave: 'settings:save',
       updateGet: 'updates:get',
       updateRetry: 'updates:retry',
-      updateStateChanged: 'updates:state-changed'
+      updateStateChanged: 'updates:state-changed',
+      importPickLocal: 'imports:pick-local',
+      importStart: 'imports:start',
+      importRetry: 'imports:retry',
+      workList: 'works:list',
+      workStateChanged: 'works:state-changed'
     })
   })
 })

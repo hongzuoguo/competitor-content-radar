@@ -57,6 +57,23 @@ describe('ImportService', () => {
     expect(repositories.jobs.get(result.workId)?.errorCode).toBe('MEDIA_COPY_FAILED')
   })
 
+  it('emits only after state is readable and stops after unsubscribe', async () => {
+    let finishPreparation!: (value: Awaited<ReturnType<ImportServiceDependencies['ingestLocal']>>) => void
+    const preparation = new Promise<Awaited<ReturnType<ImportServiceDependencies['ingestLocal']>>>((resolve) => { finishPreparation = resolve })
+    const service = new ImportService(dependencies({ ingestLocal: vi.fn(() => preparation) }))
+    const observed: Array<{ workId: string; status: string | undefined }> = []
+    const unsubscribe = service.subscribe((workId) => {
+      observed.push({ workId, status: repositories.jobs.get(workId)?.status })
+    })
+
+    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    expect(observed).toEqual([{ workId: started.workId, status: 'running' }])
+    unsubscribe()
+    finishPreparation({ sourceType: 'local_file', sourceKey: 'sha256:event', title: 'source.mp4', mediaPath: 'managed/event/video.mp4', originalUrl: null })
+    await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('completed'))
+    expect(observed).toHaveLength(1)
+  })
+
   it('downloads Douyin media into managed storage and then uses the shared processor', async () => {
     const deps = dependencies()
     const service = new ImportService(deps)

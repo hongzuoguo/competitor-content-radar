@@ -1,6 +1,7 @@
 import { ipcMain, shell } from 'electron'
+import { isAbsolute } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type CreatorView, type DashboardData, type PublicSettings, type UpdateState } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type CreatorView, type DashboardData, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
 
 export interface IpcDependencies {
   getDashboard(): Promise<DashboardData>
@@ -12,6 +13,9 @@ export interface IpcDependencies {
   loginDouyin(): Promise<void>
   getSettings(): Promise<PublicSettings>
   saveSettings(settings: Partial<PublicSettings> & { apiKey?: string }): Promise<PublicSettings>
+  startImport(request: ImportRequest): Promise<ImportStartResult>
+  retryImport(workId: string): Promise<ImportStartResult>
+  listWorks(): Promise<WorkListItem[]>
 }
 
 export interface UpdateIpcDependencies {
@@ -19,7 +23,14 @@ export interface UpdateIpcDependencies {
   retry(): Promise<void>
 }
 
-export function registerIpcHandlers(dependencies: IpcDependencies, updates?: UpdateIpcDependencies): void {
+export interface FileDialog {
+  showOpenDialog(options: {
+    properties: ['openFile']
+    filters: Array<{ name: string; extensions: string[] }>
+  }): Promise<{ canceled: boolean; filePaths: string[] }>
+}
+
+export function registerIpcHandlers(dependencies: IpcDependencies, updates?: UpdateIpcDependencies, dialog?: FileDialog): void {
   ipcMain.handle(IPC_CHANNELS.appMetadata, () => APP_METADATA)
   ipcMain.handle(IPC_CHANNELS.dashboard, () => dependencies.getDashboard())
   ipcMain.handle(IPC_CHANNELS.runNow, () => dependencies.runNow())
@@ -44,10 +55,42 @@ export function registerIpcHandlers(dependencies: IpcDependencies, updates?: Upd
   })
   ipcMain.handle(IPC_CHANNELS.updateGet, () => updates?.getState() ?? { status: 'idle' })
   ipcMain.handle(IPC_CHANNELS.updateRetry, () => updates?.retry())
+  ipcMain.handle(IPC_CHANNELS.importPickLocal, async () => {
+    if (!dialog) throw new Error('FILE_DIALOG_UNAVAILABLE')
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]
+    })
+    if (result.canceled) return null
+    const first = result.filePaths[0]
+    return first && isAbsolute(first) ? first : null
+  })
+  ipcMain.handle(IPC_CHANNELS.importStart, (_event, value: unknown) => dependencies.startImport(parseImportRequest(value)))
+  ipcMain.handle(IPC_CHANNELS.importRetry, (_event, value: unknown) => {
+    if (typeof value !== 'string' || !value.trim()) throw new Error('INVALID_IMPORT_RETRY')
+    return dependencies.retryImport(value.trim())
+  })
+  ipcMain.handle(IPC_CHANNELS.workList, () => dependencies.listWorks())
   ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, value: unknown) => {
     if (typeof value !== 'string') throw new Error('INVALID_EXTERNAL_URL')
     const url = new URL(value)
     if (url.protocol !== 'https:') throw new Error('INVALID_EXTERNAL_URL')
     await shell.openExternal(url.toString())
   })
+}
+
+function parseImportRequest(value: unknown): ImportRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new Error('INVALID_IMPORT_REQUEST')
+  }
+  const request = value as Record<string, unknown>
+  const creatorId = request.creatorId
+  if (creatorId !== null && typeof creatorId !== 'string') throw new Error('INVALID_IMPORT_REQUEST')
+  if (request.type === 'local' && typeof request.path === 'string' && request.path.trim()) {
+    return { type: 'local', path: request.path.trim(), creatorId }
+  }
+  if (request.type === 'douyin' && typeof request.url === 'string' && request.url.trim()) {
+    return { type: 'douyin', url: request.url.trim(), creatorId }
+  }
+  throw new Error('INVALID_IMPORT_REQUEST')
 }

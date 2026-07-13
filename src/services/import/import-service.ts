@@ -8,14 +8,8 @@ import type { DouyinVideoDescriptor } from './douyin-video-source'
 import type { ImportedMedia } from './local-file-source'
 import { ConcurrencyGate, PIPELINE_CONCURRENCY } from '../pipeline/job-queue'
 import { ImportError } from './import-errors'
-
-export type ImportRequest =
-  | { type: 'local'; path: string; creatorId: string | null }
-  | { type: 'douyin'; url: string; creatorId: string | null }
-
-export type ImportStartResult =
-  | { accepted: true; workId: string }
-  | { accepted: false; reason: 'duplicate'; existingWorkId: string }
+import type { ImportRequest, ImportStartResult } from '../../shared/ipc-contract'
+export type { ImportRequest, ImportStartResult } from '../../shared/ipc-contract'
 
 type AnalysisOutput = Omit<ProcessedWork, 'transcript'>
 
@@ -46,8 +40,21 @@ export class ImportService {
   private readonly downloadGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.download)
   private readonly transcriptionGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.transcription)
   private readonly analysisGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.analysis)
+  private readonly listeners = new Set<(workId: string) => void>()
 
   constructor(private readonly dependencies: ImportServiceDependencies) {}
+
+  subscribe(listener: (workId: string) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  isRetryable(workId: string): boolean {
+    const job = this.dependencies.repositories.jobs.get(workId)
+    const work = this.dependencies.repositories.works.get(workId)
+    return Boolean(job && work && job.status === 'failed' && job.errorCode !== 'IMPORT_DUPLICATE' &&
+      job.errorCode !== 'SOURCE_INPUT_REQUIRED' && !work.sourceKey.startsWith('pending:'))
+  }
 
   async start(request: ImportRequest): Promise<ImportStartResult> {
     if (this.shuttingDown) throw new ImportError('APP_SHUTTING_DOWN', 'The application is shutting down.')
@@ -67,6 +74,7 @@ export class ImportService {
       this.dependencies.repositories.works.upsert(work)
       this.dependencies.repositories.jobs.save(this.job(workId, 'discovered', 'running', 1))
     })
+    this.emit(workId)
     this.pendingRequests.set(workId, request)
     this.launch(workId, request)
     return { accepted: true, workId }
@@ -76,12 +84,12 @@ export class ImportService {
     if (this.shuttingDown) throw new ImportError('APP_SHUTTING_DOWN', 'The application is shutting down.')
     const job = this.dependencies.repositories.jobs.get(workId)
     const work = this.dependencies.repositories.works.get(workId)
-    if (!job || !work || job.status === 'completed' || job.errorCode === 'IMPORT_DUPLICATE' ||
-      job.errorCode === 'SOURCE_INPUT_REQUIRED' || work.sourceKey.startsWith('pending:')) {
+    if (job?.status === 'running' || this.active.has(workId)) throw new ImportError('RUN_ALREADY_ACTIVE', 'This job is already running.')
+    if (!job || !work || !this.isRetryable(workId)) {
       throw new ImportError('JOB_NOT_RETRYABLE', 'This job cannot be retried.')
     }
-    if (job.status === 'running' || this.active.has(workId)) throw new ImportError('RUN_ALREADY_ACTIVE', 'This job is already running.')
     this.dependencies.repositories.jobs.save({ ...job, status: 'running', attemptCount: job.attemptCount + 1, errorCode: null, errorMessage: null, updatedAt: now() })
+    this.emit(workId)
     this.launch(workId, this.pendingRequests.get(workId))
     return { accepted: true, workId }
   }
@@ -102,6 +110,7 @@ export class ImportService {
           : '应用在处理期间退出，请重试此任务。',
         updatedAt: now()
       })
+      this.emit(job.workId)
     }
   }
 
@@ -129,6 +138,7 @@ export class ImportService {
           ...existing, status: 'failed', errorCode: code,
           errorMessage: 'Import processing failed.', updatedAt: now()
         })
+        if (existing) this.emit(workId)
       } catch {
         // Shutdown waits for this terminal chain before the database is closed.
       }
@@ -169,6 +179,7 @@ export class ImportService {
           })
           this.stage(workId, request.type === 'local' ? 'downloaded' : 'discovered')
         })
+        this.emit(workId)
       } catch (error) {
         const racedDuplicate = this.dependencies.repositories.works.findBySource(source.sourceType, source.sourceKey)
         if (!racedDuplicate || racedDuplicate.id === workId) throw error
@@ -193,6 +204,7 @@ export class ImportService {
         errorMessage: 'This import already exists.', updatedAt: now()
       })
     })
+    this.emit(workId)
   }
 
   private async process(workId: string): Promise<void> {
@@ -210,6 +222,7 @@ export class ImportService {
         repositories.works.setMediaPath(workId, mediaPath)
         this.stage(workId, 'downloaded')
       })
+      this.emit(workId)
       work = repositories.works.get(workId)!
       job = repositories.jobs.get(workId)!
     }
@@ -221,6 +234,7 @@ export class ImportService {
         repositories.artifacts.save(artifacts!)
         this.stage(workId, 'audio_extracted')
       })
+      this.emit(workId)
       job = repositories.jobs.get(workId)!
     }
     if (job.stage === 'audio_extracted') {
@@ -232,6 +246,7 @@ export class ImportService {
         repositories.artifacts.save(artifacts!)
         this.stage(workId, 'transcribed')
       })
+      this.emit(workId)
       job = repositories.jobs.get(workId)!
     }
     if (job.stage === 'transcribed') {
@@ -242,9 +257,11 @@ export class ImportService {
         repositories.analyses.save({ workId, transcript, ...output, createdAt: now() })
         this.stage(workId, 'completed', 'completed')
       })
+      this.emit(workId)
       return
     }
     this.stage(workId, 'completed', 'completed')
+    this.emit(workId)
   }
 
   private stage(workId: string, stage: WorkflowStage, status: JobRecord['status'] = 'running'): void {
@@ -255,6 +272,10 @@ export class ImportService {
 
   private job(workId: string, stage: WorkflowStage, status: JobRecord['status'], attemptCount: number): JobRecord {
     return { workId, stage, status, attemptCount, nextAttemptAt: null, errorCode: null, errorMessage: null, updatedAt: now() }
+  }
+
+  private emit(workId: string): void {
+    for (const listener of this.listeners) listener(workId)
   }
 }
 

@@ -5,7 +5,7 @@ import { nextDailyRun } from './scheduler'
 import { normalizeCreatorUrl, selectBaselineWorks, selectRecentWorks } from '../services/douyin/normalizers'
 import { AppRepositories, type AnalysisRecord } from '../services/database/repositories'
 import type { AppDatabase } from '../services/database/database'
-import type { CreatorView, DashboardData, PublicSettings } from '../shared/ipc-contract'
+import type { CreatorView, DashboardData, PublicSettings, WorkListItem } from '../shared/ipc-contract'
 import type { ImportRequest, ImportService, ImportStartResult } from '../services/import/import-service'
 
 export interface ProcessedWork {
@@ -61,6 +61,44 @@ export class DesktopRuntime {
   retryImport(workId: string): Promise<ImportStartResult> {
     if (!this.imports) throw new Error('IMPORT_SERVICE_UNAVAILABLE')
     return this.imports.retry(workId)
+  }
+
+  onWorkStateChanged(listener: (workId: string) => void): () => void {
+    return this.imports?.subscribe(listener) ?? (() => undefined)
+  }
+
+  async listWorks(): Promise<WorkListItem[]> {
+    const creators = this.repositories.creators.list()
+    const allWorks = this.repositories.works.listAll()
+    return allWorks.map((work) => {
+      const job = this.repositories.jobs.get(work.id)
+      const analysis = this.repositories.analyses.get(work.id)
+      const artifact = this.repositories.artifacts.get(work.id)
+      const scoreValue = analysis?.result.referenceValueScore
+      const referenceValueScore = typeof scoreValue === 'number' ? scoreValue : null
+      const baseline = allWorks
+        .filter((candidate) => candidate.creatorId === work.creatorId && candidate.id !== work.id)
+        .slice(0, 30)
+        .map((candidate) => calculateEngagement(candidate.metrics))
+      const evaluation = evaluateHighlight(work.metrics, baseline, referenceValueScore)
+      return {
+        id: work.id,
+        creatorName: creators.find((creator) => creator.id === work.creatorId)?.name ?? '未分类作品',
+        title: work.title,
+        sourceType: work.sourceType,
+        publishedAt: work.publishedAt,
+        status: job?.status ?? 'completed',
+        stage: job?.stage ?? 'completed',
+        errorCode: job?.errorCode ?? null,
+        errorMessage: job?.errorMessage ?? null,
+        retryable: this.imports?.isRetryable(work.id) ?? false,
+        ...(artifact?.existingWorkId ? { existingWorkId: artifact.existingWorkId } : {}),
+        likes: work.metrics.likes,
+        relativeViralIndex: evaluation.relativeViralIndex,
+        referenceValueScore,
+        reasons: evaluation.reasons
+      }
+    })
   }
 
   async listCreators(): Promise<CreatorView[]> {

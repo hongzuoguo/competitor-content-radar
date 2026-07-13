@@ -14,8 +14,37 @@ export const IPC_CHANNELS = {
   settingsSave: 'settings:save',
   updateGet: 'updates:get',
   updateRetry: 'updates:retry',
-  updateStateChanged: 'updates:state-changed'
+  updateStateChanged: 'updates:state-changed',
+  importPickLocal: 'imports:pick-local',
+  importStart: 'imports:start',
+  importRetry: 'imports:retry',
+  workList: 'works:list',
+  workStateChanged: 'works:state-changed'
 } as const
+
+export type ImportRequest =
+  | { type: 'local'; path: string; creatorId: string | null }
+  | { type: 'douyin'; url: string; creatorId: string | null }
+
+export type ImportStartResult = { accepted: true; workId: string }
+
+export interface WorkListItem {
+  id: string
+  creatorName: string
+  title: string
+  sourceType: 'douyin_monitor' | 'douyin_url' | 'local_file'
+  publishedAt: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  stage: import('../core/workflow').WorkflowStage
+  errorCode: string | null
+  errorMessage: string | null
+  retryable: boolean
+  existingWorkId?: string
+  likes: number
+  relativeViralIndex: number | null
+  referenceValueScore: number | null
+  reasons: HighlightReason[]
+}
 
 export type UpdateState =
   | { status: 'idle' | 'checking' | 'up_to_date' | 'installing' }

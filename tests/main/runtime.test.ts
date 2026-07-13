@@ -3,6 +3,7 @@ import { AppDatabase } from '../../src/services/database/database'
 import { DesktopRuntime } from '../../src/main/runtime'
 import type { Work } from '../../src/core/domain'
 import type { ImportService } from '../../src/services/import/import-service'
+import { AppRepositories } from '../../src/services/database/repositories'
 
 describe('desktop runtime assembly', () => {
   let database: AppDatabase
@@ -99,5 +100,34 @@ describe('desktop runtime assembly', () => {
     await expect(runtime.retryImport('import-1')).resolves.toEqual({ accepted: true, workId: 'import-1' })
     expect(imports.start).toHaveBeenCalledWith({ type: 'local', path: 'clip.mp4', creatorId: null })
     expect(imports.retry).toHaveBeenCalledWith('import-1')
+  })
+
+  it('lists monitored and imported works with joined creator, job, analysis and artifact state', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.creators.create({ id: 'creator-1', platform: 'douyin', name: 'Alice', profileUrl: 'https://www.douyin.com/user/alice', enabled: true, createdAt: '2026-01-01T00:00:00.000Z' })
+    repositories.works.upsert({ id: 'monitor-1', creatorId: 'creator-1', platformWorkId: '1', sourceType: 'douyin_monitor', sourceKey: 'douyin:1', mediaPath: null, title: 'Monitor', publishedAt: '2026-01-02T00:00:00.000Z', originalUrl: 'https://www.douyin.com/video/1', downloadUrl: null, metrics: { likes: 12, comments: 0, shares: 0, collects: 0 } })
+    repositories.analyses.save({ workId: 'monitor-1', transcript: 'x', result: { referenceValueScore: 91, reasons: ['high_likes'] }, provider: 'p', model: 'm', promptVersion: 'v1', tokenUsage: null, createdAt: '2026-01-02T00:00:00.000Z' })
+    repositories.works.upsert({ id: 'failed-1', creatorId: null, platformWorkId: null, sourceType: 'local_file', sourceKey: 'sha256:x', mediaPath: 'x.mp4', title: 'Failed', publishedAt: '2026-01-03T00:00:00.000Z', originalUrl: null, downloadUrl: null, metrics: { likes: 0, comments: 0, shares: 0, collects: 0 } })
+    repositories.jobs.save({ workId: 'failed-1', stage: 'transcribed', status: 'failed', attemptCount: 1, nextAttemptAt: null, errorCode: 'AI_TIMEOUT', errorMessage: 'try again', updatedAt: '2026-01-03T00:00:00.000Z' })
+    repositories.artifacts.save({ workId: 'failed-1', wavPath: 'x.wav', transcript: 'x', existingWorkId: 'monitor-1', updatedAt: '2026-01-03T00:00:00.000Z' })
+    const imports = { isRetryable: vi.fn((id: string) => id === 'failed-1') } as unknown as ImportService
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() }, imports)
+
+    const works = await runtime.listWorks()
+    expect(works).toEqual([
+      expect.objectContaining({ id: 'failed-1', creatorName: '未分类作品', status: 'failed', stage: 'transcribed', errorCode: 'AI_TIMEOUT', retryable: true, existingWorkId: 'monitor-1' }),
+      expect.objectContaining({ id: 'monitor-1', creatorName: 'Alice', status: 'completed', stage: 'completed', likes: 12, referenceValueScore: 91 })
+    ])
+  })
+
+  it('bridges import work-state subscriptions and unsubscribe', () => {
+    const unsubscribe = vi.fn()
+    const imports = { subscribe: vi.fn(() => unsubscribe) } as unknown as ImportService
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() }, imports)
+    const listener = vi.fn()
+    const stop = runtime.onWorkStateChanged(listener)
+    expect(imports.subscribe).toHaveBeenCalledWith(listener)
+    stop()
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 })
