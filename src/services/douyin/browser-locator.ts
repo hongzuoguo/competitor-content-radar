@@ -12,7 +12,7 @@ export interface SystemBrowserInstallation {
 export interface BrowserLocatorDependencies {
   env: NodeJS.ProcessEnv
   exists(path: string): boolean
-  readAppPath(executableName: 'chrome.exe' | 'msedge.exe'): string | null
+  readAppPaths(executableName: 'chrome.exe' | 'msedge.exe'): string[]
 }
 
 type BrowserDefinition = {
@@ -43,7 +43,7 @@ const defaultDependencies: BrowserLocatorDependencies = {
       return false
     }
   },
-  readAppPath
+  readAppPaths
 }
 
 export function findSystemBrowser(
@@ -81,11 +81,14 @@ function* browserCandidates(
     yield executablePath
   }
 
-  const registryPath = normalizeExecutableCandidate(
-    dependencies.readAppPath(browser.executableName),
-    browser.executableName
-  )
-  if (registryPath && !seen.has(registryPath.toLowerCase())) yield registryPath
+  for (const candidate of dependencies.readAppPaths(browser.executableName)) {
+    const registryPath = normalizeExecutableCandidate(candidate, browser.executableName)
+    if (!registryPath) continue
+    const key = registryPath.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    yield registryPath
+  }
 }
 
 function environmentCandidate(root: string | undefined, relativePath: string): string | null {
@@ -93,7 +96,9 @@ function environmentCandidate(root: string | undefined, relativePath: string): s
   return path.join(root, relativePath)
 }
 
-function readAppPath(executableName: 'chrome.exe' | 'msedge.exe'): string | null {
+function readAppPaths(executableName: 'chrome.exe' | 'msedge.exe'): string[] {
+  const candidates: string[] = []
+
   for (const hive of ['HKCU', 'HKLM']) {
     try {
       const output = execFileSync(
@@ -103,13 +108,13 @@ function readAppPath(executableName: 'chrome.exe' | 'msedge.exe'): string | null
       )
       const candidate = parseRegistryValue(output)
       const normalized = normalizeExecutableCandidate(candidate, executableName)
-      if (normalized) return normalized
+      if (normalized) candidates.push(normalized)
     } catch {
       // A missing or unreadable registry key only means this installation source is unavailable.
     }
   }
 
-  return null
+  return candidates
 }
 
 function parseRegistryValue(output: string): string | null {

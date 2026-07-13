@@ -31,27 +31,27 @@ describe('findSystemBrowser', () => {
     const exists = vi.fn((candidate: string) =>
       candidate.endsWith('chrome.exe') || candidate.endsWith('msedge.exe')
     )
-    const readAppPath = vi.fn(() => null)
+    const readAppPaths = vi.fn(() => [])
 
-    expect(findSystemBrowser({ env, exists, readAppPath })).toEqual({
+    expect(findSystemBrowser({ env, exists, readAppPaths })).toEqual({
       kind: 'chrome',
       executablePath: 'C:\\Local\\Google\\Chrome\\Application\\chrome.exe'
     })
-    expect(readAppPath).not.toHaveBeenCalled()
+    expect(readAppPaths).not.toHaveBeenCalled()
     expect(exists).toHaveBeenCalledTimes(1)
   })
 
   it('uses Edge when Chrome is unavailable', () => {
     const exists = vi.fn((candidate: string) => candidate.endsWith('msedge.exe'))
 
-    expect(findSystemBrowser({ env, exists, readAppPath: () => null })).toEqual({
+    expect(findSystemBrowser({ env, exists, readAppPaths: () => [] })).toEqual({
       kind: 'edge',
       executablePath: 'C:\\Local\\Microsoft\\Edge\\Application\\msedge.exe'
     })
   })
 
   it('returns null when neither supported browser exists', () => {
-    expect(findSystemBrowser({ env: {}, exists: () => false, readAppPath: () => null })).toBeNull()
+    expect(findSystemBrowser({ env: {}, exists: () => false, readAppPaths: () => [] })).toBeNull()
   })
 
   it('falls back to a valid App Paths registry value', () => {
@@ -69,6 +69,36 @@ describe('findSystemBrowser', () => {
       ['query', 'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe', '/ve'],
       expect.objectContaining({ encoding: 'utf8', shell: false })
     )
+  })
+
+  it('continues from a stale HKCU App Paths value to an installed HKLM browser', () => {
+    const stalePath = 'C:\\Stale\\Chrome\\chrome.exe'
+    const installedPath = 'C:\\Installed\\Chrome\\chrome.exe'
+    execFileSync
+      .mockReturnValueOnce(`    (Default)    REG_SZ    ${stalePath}`)
+      .mockReturnValueOnce(`    (Default)    REG_SZ    ${installedPath}`)
+
+    expect(findSystemBrowser({ env: {}, exists: (candidate) => candidate === installedPath })).toEqual({
+      kind: 'chrome',
+      executablePath: installedPath
+    })
+  })
+
+  it('does not downgrade to Edge when Chrome HKCU is stale and Chrome HKLM is installed', () => {
+    const staleChromePath = 'C:\\Stale\\Chrome\\chrome.exe'
+    const installedChromePath = 'C:\\Installed\\Chrome\\chrome.exe'
+    const installedEdgePath = 'C:\\Local\\Microsoft\\Edge\\Application\\msedge.exe'
+    execFileSync
+      .mockReturnValueOnce(`    (Default)    REG_SZ    ${staleChromePath}`)
+      .mockReturnValueOnce(`    (Default)    REG_SZ    ${installedChromePath}`)
+
+    expect(findSystemBrowser({
+      env: { LOCALAPPDATA: 'C:\\Local' },
+      exists: (candidate) => candidate === installedChromePath || candidate === installedEdgePath
+    })).toEqual({
+      kind: 'chrome',
+      executablePath: installedChromePath
+    })
   })
 
   it.each([
@@ -101,7 +131,7 @@ describe('findSystemBrowser', () => {
   it('handles missing environment variables without creating relative candidates', () => {
     const exists = vi.fn(() => false)
 
-    expect(findSystemBrowser({ env: {}, exists, readAppPath: () => null })).toBeNull()
+    expect(findSystemBrowser({ env: {}, exists, readAppPaths: () => [] })).toBeNull()
     expect(exists).not.toHaveBeenCalled()
   })
 
@@ -116,7 +146,7 @@ describe('findSystemBrowser', () => {
     expect(findSystemBrowser({
       env: duplicateRootEnv,
       exists,
-      readAppPath: (name) => `C:\\Same\\Root\\${name === 'chrome.exe' ? 'Google\\Chrome' : 'Microsoft\\Edge'}\\Application\\${name}`
+      readAppPaths: (name) => [`C:\\Same\\Root\\${name === 'chrome.exe' ? 'Google\\Chrome' : 'Microsoft\\Edge'}\\Application\\${name}`]
     })).toBeNull()
 
     expect(exists.mock.calls.map(([candidate]) => candidate)).toEqual([
