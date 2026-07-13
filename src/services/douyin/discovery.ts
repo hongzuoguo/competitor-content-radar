@@ -36,12 +36,8 @@ export function extractWorksFromPayload(creatorId: string, payload: unknown): Wo
 }
 
 export function extractWorkFromPayload(videoId: string, payload: unknown): Work | null {
-  const candidates: Record<string, unknown>[] = []
-  collectRecords(payload, candidates)
+  const candidates = findWorkRecordsFromPayload(videoId, payload)
   for (const raw of candidates) {
-    if (!isAwemeCandidate(raw)) continue
-    const candidateId = String(raw.aweme_id ?? raw.awemeId ?? raw.id ?? '')
-    if (candidateId !== videoId) continue
     try {
       const work = normalizeDouyinWork('', raw)
       if (work.downloadUrl?.trim()) return work
@@ -52,9 +48,22 @@ export function extractWorkFromPayload(videoId: string, payload: unknown): Work 
   return null
 }
 
+export function findWorkRecordsFromPayload(
+  videoId: string,
+  payload: unknown
+): Record<string, unknown>[] {
+  const candidates: Record<string, unknown>[] = []
+  collectRecords(payload, candidates)
+  return candidates.filter((raw) => {
+    if (!isAwemeCandidate(raw)) return false
+    const candidateId = String(raw.aweme_id ?? raw.awemeId ?? raw.id ?? '')
+    return candidateId === videoId
+  })
+}
+
 function isAwemeCandidate(raw: Record<string, unknown>): boolean {
   if (raw.aweme_id != null || raw.awemeId != null) return true
-  return raw.id != null && hasVideoAddress(raw.video)
+  return raw.id != null && (hasVideoAddress(raw.video) || Array.isArray(raw.images))
 }
 
 function hasVideoAddress(value: unknown): boolean {
