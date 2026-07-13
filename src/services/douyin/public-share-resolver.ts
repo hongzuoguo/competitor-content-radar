@@ -1,5 +1,6 @@
 import { findWorkRecordsFromPayload } from './discovery'
 import { isRiskControlText } from './risk-control'
+import { isSafeDouyinMediaUrl } from '../media/url-safety'
 
 const SHARE_HOSTS = new Set(['iesdouyin.com', 'www.iesdouyin.com', 'douyin.com', 'www.douyin.com'])
 const DEFAULT_TIMEOUT_MS = 12_000
@@ -171,17 +172,74 @@ async function readLimitedBody(response: Response, maxBodyBytes: number): Promis
 }
 
 function parseRouterData(html: string): unknown | null {
-  const markerIndex = html.indexOf('window._ROUTER_DATA')
-  if (markerIndex < 0) return null
-  const equalsIndex = html.indexOf('=', markerIndex + 'window._ROUTER_DATA'.length)
-  const start = equalsIndex < 0 ? -1 : html.indexOf('{', equalsIndex + 1)
-  if (start < 0) return null
+  const scripts = html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)
+  for (const match of scripts) {
+    const script = match[1]
+    const start = findRouterObjectStart(script)
+    if (start < 0) continue
+    const parsed = parseJsonObject(script, start)
+    if (parsed) return parsed
+  }
+  return null
+}
 
+function findRouterObjectStart(script: string): number {
+  const marker = 'window._ROUTER_DATA'
+  let state: 'code' | 'single' | 'double' | 'template' | 'line-comment' | 'block-comment' = 'code'
+  let escaped = false
+
+  for (let index = 0; index < script.length; index += 1) {
+    const character = script[index]
+    const next = script[index + 1]
+    if (state === 'line-comment') {
+      if (character === '\n' || character === '\r') state = 'code'
+      continue
+    }
+    if (state === 'block-comment') {
+      if (character === '*' && next === '/') {
+        state = 'code'
+        index += 1
+      }
+      continue
+    }
+    if (state !== 'code') {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (
+        (state === 'single' && character === "'") ||
+        (state === 'double' && character === '"') ||
+        (state === 'template' && character === '`')
+      ) state = 'code'
+      continue
+    }
+    if (character === '/' && next === '/') {
+      state = 'line-comment'
+      index += 1
+    } else if (character === '/' && next === '*') {
+      state = 'block-comment'
+      index += 1
+    } else if (character === "'") state = 'single'
+    else if (character === '"') state = 'double'
+    else if (character === '`') state = 'template'
+    else if (script.startsWith(marker, index)) {
+      if (index > 0 && /[\w$.]/.test(script[index - 1])) continue
+      let cursor = index + marker.length
+      while (/\s/.test(script[cursor] ?? '')) cursor += 1
+      if (script[cursor] !== '=') continue
+      cursor += 1
+      while (/\s/.test(script[cursor] ?? '')) cursor += 1
+      if (script[cursor] === '{') return cursor
+    }
+  }
+  return -1
+}
+
+function parseJsonObject(script: string, start: number): unknown | null {
   let depth = 0
   let quoted = false
   let escaped = false
-  for (let index = start; index < html.length; index += 1) {
-    const character = html[index]
+  for (let index = start; index < script.length; index += 1) {
+    const character = script[index]
     if (quoted) {
       if (escaped) escaped = false
       else if (character === '\\') escaped = true
@@ -192,7 +250,7 @@ function parseRouterData(html: string): unknown | null {
     else if (character === '{') depth += 1
     else if (character === '}' && --depth === 0) {
       try {
-        return JSON.parse(html.slice(start, index + 1)) as unknown
+        return JSON.parse(script.slice(start, index + 1)) as unknown
       } catch {
         return null
       }
@@ -257,10 +315,9 @@ function firstUrl(...records: Record<string, unknown>[]): string | null {
 }
 
 function safeMediaUrl(value: string | null, removeWatermark: boolean): string | null {
-  if (!value) return null
+  if (!value || !isSafeDouyinMediaUrl(value)) return null
   try {
     const url = new URL(value)
-    if (url.protocol !== 'https:' || url.username || url.password || url.port) return null
     if (removeWatermark) {
       url.pathname = url.pathname
         .split('/')

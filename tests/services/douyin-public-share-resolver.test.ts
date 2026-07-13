@@ -99,6 +99,44 @@ describe('Douyin public share resolver', () => {
     }
   })
 
+  it('ignores documentation text that mentions the router marker before an unrelated object', async () => {
+    const body = [
+      '<script>const documentation = "window._ROUTER_DATA is assigned by the page";</script>',
+      `<script>const unrelated = ${JSON.stringify({ loaderData: { 'video_(id)/page': { item: video() } } })}</script>`
+    ].join('')
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
+  it('ignores router assignments inside JavaScript comments', async () => {
+    const assignment = `window._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}`
+    const body = `<script>// ${assignment}\nconst ready = true;</script><script>/* ${assignment} */</script>`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
+  it('does not accept the marker as a suffix of another identifier', async () => {
+    const body = `<script>mywindow._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}</script>`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
+  it('accepts a whitespace-delimited assignment in a later script', async () => {
+    const body = `<script>const first = {};</script><script>window._ROUTER_DATA \n\t = \n ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}</script>`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
+  })
+
   it('throws a stable error when the page signals risk control', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response('<body>访问过于频繁，请完成安全验证</body>'))
     const error = await resolvePublicDouyinVideo(ID, { fetcher }).catch((reason: unknown) => reason)
@@ -238,6 +276,10 @@ describe('Douyin public share resolver', () => {
   it.each([
     'http://media.example.com/video.mp4',
     'javascript:alert(1)',
+    'https://localhost/video.mp4',
+    'https://127.0.0.1/video.mp4',
+    'https://[::1]/video.mp4',
+    'https://v3-web.douyinvod.com.evil.test/video.mp4',
     'https://user:secret@media.example.com/video.mp4',
     'https://media.example.com:444/video.mp4'
   ])('drops unsafe media URL %s', async (mediaUrl) => {
