@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../src/preload'
 import type { WorkListItem } from '../../src/shared/ipc-contract'
 import { WorksPage } from '../../src/renderer/src/pages/WorksPage'
@@ -27,6 +27,28 @@ let emitWorkChange: ((workId: string) => void) | undefined
 let unsubscribe: ReturnType<typeof vi.fn>
 let desktopApi: DesktopApi
 
+function controlAnimationFrames(): { flushAll(): void; pending(): number } {
+  let nextId = 1
+  const callbacks = new Map<number, FrameRequestCallback>()
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    const id = nextId
+    nextId += 1
+    callbacks.set(id, callback)
+    return id
+  })
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+    callbacks.delete(id)
+  })
+  return {
+    flushAll(): void {
+      const pending = [...callbacks.values()]
+      callbacks.clear()
+      pending.forEach((callback) => callback(0))
+    },
+    pending: () => callbacks.size
+  }
+}
+
 function createDesktopApi(works: WorkListItem[] = [completed]): DesktopApi {
   unsubscribe = vi.fn()
   return {
@@ -46,6 +68,10 @@ describe('work analysis library', () => {
     emitWorkChange = undefined
     desktopApi = createDesktopApi()
     Object.defineProperty(window, 'desktopApi', { configurable: true, value: desktopApi })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('shows loading skeletons and then a useful empty state', async () => {
@@ -142,7 +168,8 @@ describe('work analysis library', () => {
     expect(screen.queryByText('已存在相同作品，已为你定位到原作品。')).not.toBeInTheDocument()
   })
 
-  it('focuses a duplicate only once when the accepted provisional import converges', async () => {
+  it('keeps duplicate focus authoritative when duplicate resolves before focus restoration', async () => {
+    const frames = controlAnimationFrames()
     const pending = { ...processing, id: 'pending-import', title: '待确认样片' }
     const duplicate = { ...failed, id: pending.id, title: pending.title, errorCode: 'IMPORT_DUPLICATE', retryable: false, existingWorkId: completed.id }
     desktopApi.startImport = vi.fn().mockResolvedValue({ accepted: true, workId: pending.id })
@@ -163,7 +190,9 @@ describe('work analysis library', () => {
     emitWorkChange?.(pending.id)
     expect(await screen.findByText('已存在相同作品，已为你定位到原作品。')).toBeInTheDocument()
     expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus()
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(frames.pending()).toBe(0)
+    frames.flushAll()
+    expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus()
     const search = screen.getByRole('textbox', { name: '搜索作品' })
     search.focus()
     emitWorkChange?.(pending.id)
@@ -174,6 +203,30 @@ describe('work analysis library', () => {
     fireEvent.click(screen.getByRole('button', { name: '全部' }))
     expect(screen.getByText(completed.title)).toBeInTheDocument()
     expect(search).toHaveFocus()
+  })
+
+  it('moves focus from the import button to a duplicate resolved after restoration', async () => {
+    const frames = controlAnimationFrames()
+    let resolveDuplicate!: (works: WorkListItem[]) => void
+    const duplicate = { ...failed, id: 'pending-import', title: '重复作品', errorCode: 'IMPORT_DUPLICATE', retryable: false, existingWorkId: completed.id }
+    desktopApi.startImport = vi.fn().mockResolvedValue({ accepted: true, workId: duplicate.id })
+    desktopApi.listWorks = vi.fn()
+      .mockResolvedValueOnce([completed])
+      .mockReturnValueOnce(new Promise((resolve) => { resolveDuplicate = resolve }))
+    render(<WorksPage />)
+    await screen.findByText(completed.title)
+    const trigger = screen.getByRole('button', { name: '导入作品' })
+    fireEvent.click(trigger)
+    fireEvent.click(await screen.findByRole('button', { name: '选择视频' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '开始分析' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+    await waitFor(() => expect(desktopApi.listWorks).toHaveBeenCalledTimes(2))
+    expect(frames.pending()).toBe(1)
+    frames.flushAll()
+    expect(trigger).toHaveFocus()
+    resolveDuplicate([duplicate, completed])
+    expect(await screen.findByText('已存在相同作品，已为你定位到原作品。')).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus()
   })
 
   it('shows only the primary empty state when storage contains duplicate placeholders', async () => {

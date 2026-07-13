@@ -25,10 +25,17 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const mountedRef = useRef(false)
   const pendingImportIdRef = useRef<string | undefined>(undefined)
+  const focusRestoreFrameRef = useRef<number | null>(null)
   const refreshRunningRef = useRef(false)
   const refreshQueuedRef = useRef(false)
   const queuedDuplicateCandidateRef = useRef<string | undefined>(undefined)
   const hasSuccessfulLoadRef = useRef(false)
+
+  const cancelFocusRestore = useCallback((): void => {
+    if (focusRestoreFrameRef.current === null) return
+    cancelAnimationFrame(focusRestoreFrameRef.current)
+    focusRestoreFrameRef.current = null
+  }, [])
 
   const refreshWorks = useCallback(async (showLoading = false, duplicateCandidateId?: string): Promise<void> => {
     if (!mountedRef.current) return
@@ -61,6 +68,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
             : undefined
           if (duplicate?.existingWorkId && nextWorks.some((work) => work.id === duplicate.existingWorkId)) {
             pendingImportIdRef.current = undefined
+            cancelFocusRestore()
             setFocusedWorkId(duplicate.existingWorkId)
             setFilter('all')
             setQuery('')
@@ -77,7 +85,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     } finally {
       refreshRunningRef.current = false
     }
-  }, [])
+  }, [cancelFocusRestore])
 
   useEffect(() => {
     mountedRef.current = true
@@ -88,9 +96,10 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     return () => {
       mountedRef.current = false
       refreshQueuedRef.current = false
+      cancelFocusRestore()
       unsubscribe()
     }
-  }, [refreshWorks])
+  }, [cancelFocusRestore, refreshWorks])
 
   const nonDuplicateWorks = useMemo(() => allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE'), [allWorks])
   const works = useMemo(() => nonDuplicateWorks.filter((work) => {
@@ -104,6 +113,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   }), [filter, nonDuplicateWorks, query])
 
   function openImport(options: { creatorId?: string | null; localPath?: string } = {}): void {
+    cancelFocusRestore()
     setInitialCreatorId(options.creatorId)
     setInitialLocalPath(options.localPath)
     setImportOpen(true)
@@ -125,7 +135,11 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
 
   function closeImport(): void {
     setImportOpen(false)
-    requestAnimationFrame(() => importButtonRef.current?.focus())
+    cancelFocusRestore()
+    focusRestoreFrameRef.current = requestAnimationFrame(() => {
+      focusRestoreFrameRef.current = null
+      importButtonRef.current?.focus()
+    })
   }
 
   function acceptImport(result: ImportStartResult): void {

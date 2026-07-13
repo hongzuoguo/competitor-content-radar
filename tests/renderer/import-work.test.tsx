@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../src/preload'
 import { WorksPage } from '../../src/renderer/src/pages/WorksPage'
 
@@ -24,6 +24,10 @@ describe('work import dialog', () => {
     desktopApi.getPathForFile = vi.fn().mockReturnValue('C:\\video\\拖放样片.mp4')
     desktopApi.startImport = vi.fn().mockResolvedValue({ accepted: true, workId: 'work-1' })
     Object.defineProperty(window, 'desktopApi', { configurable: true, value: desktopApi })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('opens and closes the dialog', async () => {
@@ -192,13 +196,20 @@ describe('work import dialog', () => {
   })
 
   it('closes with Escape and restores focus to the import button', async () => {
+    let restoreFocus!: FrameRequestCallback
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      restoreFocus = callback
+      return 1
+    })
     render(<WorksPage />)
     const trigger = screen.getByRole('button', { name: '导入作品' })
     fireEvent.click(trigger)
     const dialog = await screen.findByRole('dialog', { name: '导入作品' })
     fireEvent(dialog, new Event('cancel', { bubbles: false, cancelable: true }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '导入作品' })).not.toBeInTheDocument())
-    await waitFor(() => expect(trigger).toHaveFocus())
+    expect(trigger).not.toHaveFocus()
+    restoreFocus(0)
+    expect(trigger).toHaveFocus()
   })
 
   it('switches source tabs with the keyboard', async () => {
