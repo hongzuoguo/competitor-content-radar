@@ -30,7 +30,7 @@ interface ModelManifest {
 
 export interface ProductionRuntime {
   runtime: DesktopRuntime
-  close(): void
+  close(): Promise<void>
 }
 
 export function createProductionRuntime(): ProductionRuntime {
@@ -133,6 +133,21 @@ export function createProductionRuntime(): ProductionRuntime {
     getSettings: () => repositories.settings.get<PublicSettings>('app.publicSettings') ?? {},
     report: ports.report
   })
+  imports.reconcileInterruptedJobs()
   const runtime = new DesktopRuntime(database, ports, imports)
-  return { runtime, close: () => database.close() }
+  return {
+    runtime,
+    async close() {
+      await imports.shutdown()
+      if (!runtime.isBusinessIdle()) {
+        await new Promise<void>((resolve) => {
+          const unsubscribe = runtime.onBusinessIdle(() => {
+            unsubscribe()
+            resolve()
+          })
+        })
+      }
+      database.close()
+    }
+  }
 }

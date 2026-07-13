@@ -24,7 +24,7 @@ export class UpdateService {
   constructor(
     private readonly updater: UpdaterAdapter,
     private readonly isBusinessIdle: () => boolean,
-    private readonly prepareInstall: () => void = () => undefined
+    private readonly prepareInstall: () => Promise<void> | void = () => undefined
   ) {
     this.bindEvents()
   }
@@ -55,9 +55,13 @@ export class UpdateService {
   notifyBusinessIdle(): void {
     if (!this.downloadedVersion || !this.isBusinessIdle()) return
     this.setState({ status: 'installing' })
-    setTimeout(() => {
-      this.prepareInstall()
-      this.updater.quitAndInstall(true, true)
+    setTimeout(async () => {
+      try {
+        await this.prepareInstall()
+        this.updater.quitAndInstall(true, true)
+      } catch {
+        this.setState({ status: 'error', message: '应用退出准备失败，请稍后重试更新。' })
+      }
     }, 0)
   }
 

@@ -8,6 +8,7 @@ export type ImportErrorCode =
   | 'JOB_NOT_RETRYABLE'
   | 'RUN_ALREADY_ACTIVE'
   | 'INVALID_IMPORT_INPUT'
+  | 'APP_SHUTTING_DOWN'
 
 export interface ImportErrorOptions {
   action?: string

@@ -39,6 +39,34 @@ describe('automatic update service', () => {
     vi.useRealTimers()
   })
 
+  it('awaits asynchronous shutdown before installing an update', async () => {
+    vi.useFakeTimers()
+    const updater = new FakeUpdater()
+    let release!: () => void
+    const shutdown = new Promise<void>((resolve) => { release = resolve })
+    const service = new UpdateService(updater, () => true, () => shutdown)
+    await service.start()
+    updater.emit('update-downloaded', { version: '0.3.0' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
+    release()
+    await vi.runAllTimersAsync()
+    expect(updater.quitAndInstall).toHaveBeenCalledWith(true, true)
+    vi.useRealTimers()
+  })
+
+  it('does not install when asynchronous shutdown fails', async () => {
+    vi.useFakeTimers()
+    const updater = new FakeUpdater()
+    const service = new UpdateService(updater, () => true, async () => { throw new Error('SHUTDOWN_FAILED') })
+    await service.start()
+    updater.emit('update-downloaded', { version: '0.3.0' })
+    await vi.runAllTimersAsync()
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
+    expect(service.getState().status).toBe('error')
+    vi.useRealTimers()
+  })
+
   it('keeps the current version usable when update checks fail', async () => {
     const updater = new FakeUpdater()
     const service = new UpdateService(updater, () => true)

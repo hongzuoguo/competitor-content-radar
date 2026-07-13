@@ -236,4 +236,53 @@ describe('ImportService', () => {
     await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('completed'))
     await expect(service.retry(started.workId)).rejects.toMatchObject({ code: 'JOB_NOT_RETRYABLE' })
   })
+
+  it('waits for active work during shutdown and rejects new imports', async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const service = new ImportService(dependencies({ processor: {
+      extractAudio: vi.fn(async () => { await blocked; return 'managed/audio.wav' }),
+      transcribe: vi.fn(async () => 'words'),
+      analyze: vi.fn(async () => ({ result: {}, provider: 'p', model: 'm', promptVersion: 'v1', tokenUsage: null }))
+    } }))
+    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    if (!started.accepted) throw new Error('expected accepted import')
+    let drained = false
+    const shutdown = service.shutdown().then(() => { drained = true })
+    await Promise.resolve()
+    expect(drained).toBe(false)
+    await expect(service.start({ type: 'local', path: 'another.mp4', creatorId: null }))
+      .rejects.toMatchObject({ code: 'APP_SHUTTING_DOWN' })
+    release()
+    await shutdown
+    expect(repositories.jobs.get(started.workId)?.status).toBe('completed')
+    database.close()
+    expect(database.connection.open).toBe(false)
+    database = new AppDatabase(':memory:')
+  })
+
+  it('contains failures from its terminal catch without unhandled rejection', async () => {
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      let failWrites = false
+      const originalSave = repositories.jobs.save.bind(repositories.jobs)
+      vi.spyOn(repositories.jobs, 'save').mockImplementation((job) => {
+        if (failWrites) throw new Error('DATABASE_CLOSED')
+        originalSave(job)
+      })
+      const service = new ImportService(dependencies({
+        ingestLocal: vi.fn(async () => { throw new Error('preparation failed') }),
+        report: vi.fn(() => { throw new Error('LOGGER_FAILED') })
+      }))
+      const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+      if (!started.accepted) throw new Error('expected accepted import')
+      failWrites = true
+      await service.shutdown()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
 })

@@ -40,7 +40,9 @@ const now = () => new Date().toISOString()
 
 export class ImportService {
   private readonly active = new Set<string>()
+  private readonly activePromises = new Map<string, Promise<void>>()
   private readonly pendingRequests = new Map<string, ImportRequest>()
+  private shuttingDown = false
   private readonly downloadGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.download)
   private readonly transcriptionGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.transcription)
   private readonly analysisGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.analysis)
@@ -48,6 +50,7 @@ export class ImportService {
   constructor(private readonly dependencies: ImportServiceDependencies) {}
 
   async start(request: ImportRequest): Promise<ImportStartResult> {
+    if (this.shuttingDown) throw new ImportError('APP_SHUTTING_DOWN', 'The application is shutting down.')
     this.validateCreator(request.creatorId)
     const input = request.type === 'local' ? request.path : request.url
     if (!input.trim()) throw new ImportError('INVALID_IMPORT_INPUT', 'An import source is required.')
@@ -70,12 +73,41 @@ export class ImportService {
   }
 
   async retry(workId: string): Promise<ImportStartResult> {
+    if (this.shuttingDown) throw new ImportError('APP_SHUTTING_DOWN', 'The application is shutting down.')
     const job = this.dependencies.repositories.jobs.get(workId)
-    if (!job || job.status === 'completed' || job.errorCode === 'IMPORT_DUPLICATE') throw new ImportError('JOB_NOT_RETRYABLE', 'This job cannot be retried.')
+    const work = this.dependencies.repositories.works.get(workId)
+    if (!job || !work || job.status === 'completed' || job.errorCode === 'IMPORT_DUPLICATE' ||
+      job.errorCode === 'SOURCE_INPUT_REQUIRED' || work.sourceKey.startsWith('pending:')) {
+      throw new ImportError('JOB_NOT_RETRYABLE', 'This job cannot be retried.')
+    }
     if (job.status === 'running' || this.active.has(workId)) throw new ImportError('RUN_ALREADY_ACTIVE', 'This job is already running.')
     this.dependencies.repositories.jobs.save({ ...job, status: 'running', attemptCount: job.attemptCount + 1, errorCode: null, errorMessage: null, updatedAt: now() })
     this.launch(workId, this.pendingRequests.get(workId))
     return { accepted: true, workId }
+  }
+
+  reconcileInterruptedJobs(): void {
+    for (const job of this.dependencies.repositories.jobs.list()) {
+      if (job.status !== 'running' || this.active.has(job.workId)) continue
+      const work = this.dependencies.repositories.works.get(job.workId)
+      const artifacts = this.dependencies.repositories.artifacts.get(job.workId)
+      const sourceInputRequired = !work || work.sourceKey.startsWith('pending:') ||
+        (!work.mediaPath && !work.downloadUrl && !artifacts?.wavPath && artifacts?.transcript == null)
+      this.dependencies.repositories.jobs.save({
+        ...job,
+        status: 'failed',
+        errorCode: sourceInputRequired ? 'SOURCE_INPUT_REQUIRED' : 'APP_INTERRUPTED',
+        errorMessage: sourceInputRequired
+          ? '导入来源未准备完成，请重新导入。'
+          : '应用在处理期间退出，请重试此任务。',
+        updatedAt: now()
+      })
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    this.shuttingDown = true
+    await Promise.all([...this.activePromises.values()])
   }
 
   private validateCreator(creatorId: string | null): void {
@@ -86,17 +118,31 @@ export class ImportService {
 
   private launch(workId: string, request?: ImportRequest): void {
     this.active.add(workId)
-    void this.prepareAndProcess(workId, request).catch((error: unknown) => {
-      const existing = this.dependencies.repositories.jobs.get(workId)
+    const operation = this.prepareAndProcess(workId, request)
+    const terminal = operation.catch((error: unknown) => {
       const code = errorCode(error)
-      if (existing) this.dependencies.repositories.jobs.save({
-        ...existing, status: 'failed', errorCode: code,
-        errorMessage: 'Import processing failed.', updatedAt: now()
-      })
-      this.dependencies.report?.('error', 'Import processing failed', {
-        workId, stage: existing?.stage ?? 'discovered', errorCode: code
-      })
-    }).finally(() => this.active.delete(workId))
+      let stage: WorkflowStage = 'discovered'
+      try {
+        const existing = this.dependencies.repositories.jobs.get(workId)
+        stage = existing?.stage ?? stage
+        if (existing) this.dependencies.repositories.jobs.save({
+          ...existing, status: 'failed', errorCode: code,
+          errorMessage: 'Import processing failed.', updatedAt: now()
+        })
+      } catch {
+        // Shutdown waits for this terminal chain before the database is closed.
+      }
+      try {
+        this.dependencies.report?.('error', 'Import processing failed', { workId, stage, errorCode: code })
+      } catch {
+        // Logging failures must not create an unhandled rejection.
+      }
+    }).catch(() => undefined).finally(() => {
+      this.active.delete(workId)
+      this.activePromises.delete(workId)
+      this.pendingRequests.delete(workId)
+    })
+    this.activePromises.set(workId, terminal)
   }
 
   private async prepareAndProcess(workId: string, request?: ImportRequest): Promise<void> {
@@ -131,7 +177,6 @@ export class ImportService {
       }
     }
     await this.process(workId)
-    this.pendingRequests.delete(workId)
   }
 
   private recordDuplicate(workId: string, existingWorkId: string): void {

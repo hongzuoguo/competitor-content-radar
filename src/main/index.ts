@@ -13,15 +13,30 @@ import { UpdateService, type UpdaterAdapter } from './update-service'
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let shutdownComplete = false
+let quitPromise: Promise<void> | null = null
 let production: ProductionRuntime | null = null
 let scheduler: AppScheduler | null = null
 let updateService: UpdateService | null = null
 
-function prepareToQuit(): void {
-  isQuitting = true
-  scheduler?.stop()
-  tray?.destroy()
-  production?.close()
+function prepareToQuit(): Promise<void> {
+  quitPromise ??= (async () => {
+    isQuitting = true
+    scheduler?.stop()
+    tray?.destroy()
+    await production?.close()
+  })()
+  return quitPromise
+}
+
+async function requestAppQuit(): Promise<void> {
+  try {
+    await prepareToQuit()
+    shutdownComplete = true
+    app.quit()
+  } catch {
+    log.error('应用退出准备失败', { errorCode: 'SHUTDOWN_FAILED' })
+  }
 }
 
 function createMainWindow(): BrowserWindow {
@@ -72,7 +87,10 @@ app.whenReady().then(() => {
     updateService = new UpdateService(
       autoUpdater as unknown as UpdaterAdapter,
       () => runtime.isBusinessIdle(),
-      prepareToQuit
+      async () => {
+        await prepareToQuit()
+        shutdownComplete = true
+      }
     )
     runtime.onBusinessIdle(() => updateService?.notifyBusinessIdle())
   }
@@ -88,8 +106,7 @@ app.whenReady().then(() => {
     },
     runNow: () => { void runtime.runNow() },
     quit: () => {
-      prepareToQuit()
-      app.quit()
+      void requestAppQuit()
     }
   })
   scheduler = new AppScheduler(
@@ -103,6 +120,8 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
-  prepareToQuit()
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  void requestAppQuit()
 })
