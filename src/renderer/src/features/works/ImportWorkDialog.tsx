@@ -14,12 +14,14 @@ interface ImportErrorLike {
 export function ImportWorkDialog({
   creators,
   creatorLoadState,
+  initialCreatorName,
   onAccepted,
   onClose,
   onRetryCreators
 }: {
   creators: CreatorView[]
   creatorLoadState: CreatorLoadState
+  initialCreatorName?: string
   onAccepted(result: ImportStartResult): void
   onClose(): void
   onRetryCreators(): void
@@ -51,6 +53,12 @@ export function ImportWorkDialog({
   useEffect(() => {
     setConfirmedUnclassified(false)
   }, [creatorLoadState])
+
+  useEffect(() => {
+    if (!initialCreatorName || creatorLoadState !== 'ready' || creatorId) return
+    const matchingCreator = creators.find((creator) => creator.name === initialCreatorName)
+    if (matchingCreator) setCreatorId(matchingCreator.id)
+  }, [creatorId, creatorLoadState, creators, initialCreatorName])
 
   function selectSource(next: SourceType): void {
     setSourceType(next)
