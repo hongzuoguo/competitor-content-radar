@@ -6,6 +6,7 @@ import { WorksPage } from '../../src/renderer/src/pages/WorksPage'
 const desktopApi = {
   listCreators: vi.fn(),
   pickLocalVideo: vi.fn(),
+  getPathForFile: vi.fn(),
   startImport: vi.fn()
 } as unknown as DesktopApi
 
@@ -16,6 +17,7 @@ describe('work import dialog', () => {
       { id: 'creator-1', name: '测试博主', profileUrl: 'https://www.douyin.com/user/test', enabled: true, works: 0, lastRun: '尚未采集', status: 'waiting' }
     ])
     desktopApi.pickLocalVideo = vi.fn().mockResolvedValue('C:\\video\\样片.mp4')
+    desktopApi.getPathForFile = vi.fn().mockReturnValue('C:\\video\\拖放样片.mp4')
     desktopApi.startImport = vi.fn().mockResolvedValue({ accepted: true, workId: 'work-1' })
     Object.defineProperty(window, 'desktopApi', { configurable: true, value: desktopApi })
   })
@@ -39,16 +41,6 @@ describe('work import dialog', () => {
       source: { type: 'local', path: 'C:\\video\\样片.mp4' }, creatorId: 'creator-1'
     }))
     expect(await screen.findByText('任务已启动，请到作品分析查看进度')).toBeInTheDocument()
-  })
-
-  it('passes an existing work id to the parent for duplicate handling', async () => {
-    const onImportAccepted = vi.fn()
-    desktopApi.startImport = vi.fn().mockResolvedValue({ accepted: true, workId: 'pending-1', existingWorkId: 'work-existing' })
-    render(<WorksPage onImportAccepted={onImportAccepted} />)
-    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
-    fireEvent.click(await screen.findByRole('button', { name: '选择视频' }))
-    fireEvent.click(await screen.findByRole('button', { name: '开始分析' }))
-    await waitFor(() => expect(onImportAccepted).toHaveBeenCalledWith(expect.objectContaining({ existingWorkId: 'work-existing' })))
   })
 
   it('keeps creator selection when switching source tabs', async () => {
@@ -80,6 +72,55 @@ describe('work import dialog', () => {
     expect(desktopApi.startImport).not.toHaveBeenCalled()
   })
 
+  it.each([
+    'https://www.douyin.com/user/test?vid=7658288075461725474',
+    'https://foo.douyin.com/video/7658288075461725474',
+    'https://v.douyin.com/',
+    'https://v.douyin.com/a/b',
+    'https://user:pass@www.douyin.com/video/7658288075461725474',
+    'https://www.douyin.com:444/video/7658288075461725474'
+  ])('rejects a URL the import service would reject: %s', async (url) => {
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
+    fireEvent.change(screen.getByLabelText('抖音单条视频链接'), { target: { value: url } })
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/抖音单条视频链接|有效的抖音链接/)
+    expect(desktopApi.startImport).not.toHaveBeenCalled()
+  })
+
+  it('accepts a direct video URL and a valid short URL', async () => {
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
+    const input = screen.getByLabelText('抖音单条视频链接')
+    fireEvent.change(input, { target: { value: 'https://v.douyin.com/AbC12/' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+    await waitFor(() => expect(desktopApi.startImport).toHaveBeenCalledWith(expect.objectContaining({
+      source: { type: 'douyin_url', url: 'https://v.douyin.com/AbC12/' }
+    })))
+  })
+
+  it('imports a supported video dropped from Electron', async () => {
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    const file = new File(['video'], '拖放样片.mp4', { type: 'video/mp4' })
+    fireEvent.drop(await screen.findByTestId('local-video-drop-zone'), { dataTransfer: { files: [file] } })
+    expect(await screen.findByText('拖放样片.mp4')).toBeInTheDocument()
+    expect(desktopApi.getPathForFile).toHaveBeenCalledWith(file)
+  })
+
+  it('rejects an unsupported dropped file and links the error description', async () => {
+    desktopApi.getPathForFile = vi.fn().mockReturnValue('C:\\video\\notes.txt')
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    const dropZone = await screen.findByTestId('local-video-drop-zone')
+    fireEvent.drop(dropZone, { dataTransfer: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('暂不支持这个视频格式')
+    expect(dropZone).toHaveAttribute('aria-describedby', alert.id)
+  })
+
   it('prevents duplicate submission while an import is starting', async () => {
     desktopApi.pickLocalVideo = vi.fn().mockResolvedValue('C:\\video\\样片.mp4')
     desktopApi.startImport = vi.fn().mockReturnValue(new Promise(() => undefined))
@@ -93,18 +134,39 @@ describe('work import dialog', () => {
     expect(desktopApi.startImport).toHaveBeenCalledTimes(1)
   })
 
-  it('offers local upload when a Douyin URL is unavailable', async () => {
-    desktopApi.startImport = vi.fn().mockRejectedValue(Object.assign(new Error('无法获取这个视频'), {
-      code: 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE', action: 'upload_local'
-    }))
+  it.each([
+    ['INVALID_CREATOR', '关联的博主已不存在，请重新选择。'],
+    ['INVALID_IMPORT_INPUT', '导入信息不完整，请重新选择视频或检查链接。'],
+    ['APP_SHUTTING_DOWN', '应用正在关闭，请重新打开应用后再导入。'],
+    ['FILE_NOT_FOUND', '无法读取这个视频，请确认文件仍在原位置。'],
+    ['MEDIA_COPY_FAILED', '视频复制失败，请检查磁盘空间后重试。']
+  ])('shows a stable Chinese message for %s', async (code, message) => {
+    desktopApi.startImport = vi.fn().mockRejectedValue(Object.assign(new Error('Internal English message'), { code }))
     render(<WorksPage />)
     fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
-    fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
-    fireEvent.change(screen.getByLabelText('抖音单条视频链接'), { target: { value: 'https://www.douyin.com/video/7658288075461725474' } })
-    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
-    const fallback = await screen.findByRole('button', { name: '改为上传本地视频' })
-    fireEvent.click(fallback)
-    await waitFor(() => expect(desktopApi.pickLocalVideo).toHaveBeenCalled())
-    expect(screen.getByLabelText('关联博主（可选）')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '选择视频' }))
+    fireEvent.click(await screen.findByRole('button', { name: '开始分析' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(screen.queryByText('Internal English message')).not.toBeInTheDocument()
+  })
+
+  it('closes with Escape and restores focus to the import button', async () => {
+    render(<WorksPage />)
+    const trigger = screen.getByRole('button', { name: '导入作品' })
+    fireEvent.click(trigger)
+    const dialog = await screen.findByRole('dialog', { name: '导入作品' })
+    fireEvent(dialog, new Event('cancel', { bubbles: false, cancelable: true }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '导入作品' })).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it('switches source tabs with the keyboard', async () => {
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    const local = await screen.findByRole('button', { name: '本地视频' })
+    local.focus()
+    fireEvent.keyDown(local, { key: 'ArrowRight' })
+    expect(screen.getByRole('button', { name: '抖音链接' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('抖音单条视频链接')).toBeInTheDocument()
   })
 })

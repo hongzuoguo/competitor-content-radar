@@ -4,12 +4,10 @@ import type { CreatorView, ImportStartResult } from '../../../../shared/ipc-cont
 import { Button } from '../../components/Button'
 
 type SourceType = 'local' | 'douyin_url'
-export type ImportAcceptedResult = ImportStartResult & { existingWorkId?: string }
+const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm'])
 
 interface ImportErrorLike {
   code?: string
-  message?: string
-  action?: string
 }
 
 export function ImportWorkDialog({
@@ -18,18 +16,23 @@ export function ImportWorkDialog({
   onClose
 }: {
   creators: CreatorView[]
-  onAccepted(result: ImportAcceptedResult): void
+  onAccepted(result: ImportStartResult): void
   onClose(): void
 }): React.JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const localTabRef = useRef<HTMLButtonElement>(null)
+  const urlTabRef = useRef<HTMLButtonElement>(null)
   const titleId = useId()
+  const localLabelId = useId()
+  const localHelpId = useId()
+  const localErrorId = useId()
+  const creatorHelpId = useId()
   const [sourceType, setSourceType] = useState<SourceType>('local')
   const [localPath, setLocalPath] = useState('')
   const [url, setUrl] = useState('')
   const [creatorId, setCreatorId] = useState('')
   const [fieldError, setFieldError] = useState('')
   const [submitError, setSubmitError] = useState('')
-  const [offerLocalFallback, setOfferLocalFallback] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -43,7 +46,6 @@ export function ImportWorkDialog({
     setSourceType(next)
     setFieldError('')
     setSubmitError('')
-    setOfferLocalFallback(false)
   }
 
   async function pickLocalVideo(): Promise<void> {
@@ -51,15 +53,32 @@ export function ImportWorkDialog({
     setSubmitError('')
     try {
       const path = await window.desktopApi.pickLocalVideo()
-      if (path) setLocalPath(path)
+      if (path) setLocalVideoPath(path)
     } catch {
       setFieldError('无法打开文件选择器，请稍后重试。')
     }
   }
 
-  async function switchToLocal(): Promise<void> {
-    selectSource('local')
-    await pickLocalVideo()
+  function handleDroppedFile(file: File | undefined): void {
+    setSubmitError('')
+    if (!file) return
+    try {
+      const path = window.desktopApi.getPathForFile(file)
+      if (path) setLocalVideoPath(path)
+    } catch {
+      setLocalPath('')
+      setFieldError('无法读取拖放的视频，请改用“选择视频”。')
+    }
+  }
+
+  function setLocalVideoPath(path: string): void {
+    if (isSupportedVideoPath(path)) {
+      setFieldError('')
+      setLocalPath(path)
+    } else {
+      setLocalPath('')
+      setFieldError('暂不支持这个视频格式，请选择 MP4、MOV、MKV 或 WebM 文件。')
+    }
   }
 
   async function submit(): Promise<void> {
@@ -73,7 +92,6 @@ export function ImportWorkDialog({
     setSubmitting(true)
     setFieldError('')
     setSubmitError('')
-    setOfferLocalFallback(false)
     try {
       const result = await window.desktopApi.startImport({
         source: sourceType === 'local'
@@ -81,14 +99,10 @@ export function ImportWorkDialog({
           : { type: 'douyin_url', url: url.trim() },
         creatorId: creatorId || null
       })
-      onAccepted(result as ImportAcceptedResult)
+      onAccepted(result)
     } catch (error) {
       const details = error as ImportErrorLike
-      const downloadUnavailable = details.code === 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE' || details.action === 'upload_local'
-      setSubmitError(downloadUnavailable
-        ? '无法获取这个视频。请先保存视频到电脑，再从本地上传。'
-        : stableErrorMessage(details))
-      setOfferLocalFallback(downloadUnavailable)
+      setSubmitError(stableErrorMessage(details))
     } finally {
       setSubmitting(false)
     }
@@ -111,20 +125,27 @@ export function ImportWorkDialog({
       </div>
 
       <div aria-label="内容来源" className="import-source-tabs" role="group">
-        <button aria-pressed={sourceType === 'local'} onClick={() => selectSource('local')} type="button"><FileVideo size={16} aria-hidden="true" />本地视频</button>
-        <button aria-pressed={sourceType === 'douyin_url'} onClick={() => selectSource('douyin_url')} type="button"><Link2 size={16} aria-hidden="true" />抖音链接</button>
+        <button aria-pressed={sourceType === 'local'} onClick={() => selectSource('local')} onKeyDown={(event) => switchTabWithArrow(event, 'douyin_url', urlTabRef, selectSource)} ref={localTabRef} type="button"><FileVideo size={16} aria-hidden="true" />本地视频</button>
+        <button aria-pressed={sourceType === 'douyin_url'} onClick={() => selectSource('douyin_url')} onKeyDown={(event) => switchTabWithArrow(event, 'local', localTabRef, selectSource)} ref={urlTabRef} type="button"><Link2 size={16} aria-hidden="true" />抖音链接</button>
       </div>
 
       <div className="import-dialog__body">
         {sourceType === 'local' ? (
           <div className="form-field">
-            <span className="import-field-label">视频文件</span>
-            <div className="file-picker">
+            <span className="import-field-label" id={localLabelId}>视频文件</span>
+            <div
+              aria-describedby={fieldError ? localErrorId : localHelpId}
+              aria-labelledby={localLabelId}
+              className="file-picker"
+              data-testid="local-video-drop-zone"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => { event.preventDefault(); handleDroppedFile(event.dataTransfer.files[0]) }}
+            >
               <FileVideo size={24} aria-hidden="true" />
-              {fileName ? <div><strong>{fileName}</strong><small title={localPath}>{localPath}</small></div> : <div><strong>选择一个视频文件</strong><small>支持 MP4、MOV、MKV 和 WebM</small></div>}
+              {fileName ? <div><strong>{fileName}</strong><small id={localHelpId} title={localPath}>{localPath}</small></div> : <div><strong>选择或拖入一个视频文件</strong><small id={localHelpId}>支持 MP4、MOV、MKV 和 WebM</small></div>}
               <Button icon={<Upload size={16} />} onClick={() => void pickLocalVideo()} variant="secondary">{fileName ? '重新选择' : '选择视频'}</Button>
             </div>
-            {fieldError ? <span className="form-error" role="alert">{fieldError}</span> : null}
+            {fieldError ? <span className="form-error" id={localErrorId} role="alert">{fieldError}</span> : null}
           </div>
         ) : (
           <div className="form-field">
@@ -144,17 +165,16 @@ export function ImportWorkDialog({
 
         <div className="form-field">
           <label htmlFor="import-creator">关联博主（可选）</label>
-          <select id="import-creator" onChange={(event) => setCreatorId(event.target.value)} value={creatorId}>
+          <select aria-describedby={creatorHelpId} id="import-creator" onChange={(event) => setCreatorId(event.target.value)} value={creatorId}>
             <option value="">未分类作品</option>
             {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name}</option>)}
           </select>
-          <span className="form-help">不选择博主也可以继续分析。</span>
+          <span className="form-help" id={creatorHelpId}>不选择博主也可以继续分析。</span>
         </div>
 
         {submitError ? (
           <div className="import-error" role="alert">
             <strong>导入未开始</strong><span>{submitError}</span>
-            {offerLocalFallback ? <Button onClick={() => void switchToLocal()} variant="secondary">改为上传本地视频</Button> : null}
           </div>
         ) : null}
       </div>
@@ -173,26 +193,45 @@ function validateSource(sourceType: SourceType, localPath: string, rawUrl: strin
   if (!value) return '请粘贴抖音单条视频链接。'
   try {
     const parsed = new URL(value)
-    if (parsed.protocol !== 'https:' || !isDouyinHost(parsed.hostname)) throw new Error('invalid')
-    const singleVideo = /^\/video\/\d+\/?$/.test(parsed.pathname)
-      || parsed.hostname === 'v.douyin.com'
-      || /^\d+$/.test(parsed.searchParams.get('vid') ?? '')
-    return singleVideo ? '' : '请输入抖音单条视频链接，不支持博主主页。'
+    const secure = parsed.protocol === 'https:' && !parsed.port && !parsed.username && !parsed.password
+    if (!secure) return '请输入有效的抖音链接，不支持凭据或自定义端口。'
+    if ((parsed.hostname === 'douyin.com' || parsed.hostname === 'www.douyin.com') && /^\/video\/\d+\/?$/.test(parsed.pathname)) return ''
+    if (parsed.hostname === 'v.douyin.com' && /^\/[^/]+\/?$/.test(parsed.pathname)) return ''
+    return '请输入抖音单条视频链接，不支持博主主页。'
   } catch {
-    return '请输入有效的抖音单条视频链接。'
+    return '请输入有效的抖音链接。'
   }
 }
 
-function isDouyinHost(hostname: string): boolean {
-  return hostname === 'douyin.com' || hostname.endsWith('.douyin.com')
+function isSupportedVideoPath(path: string): boolean {
+  const extension = path.split('.').pop()?.toLowerCase()
+  return extension !== undefined && SUPPORTED_VIDEO_EXTENSIONS.has(extension)
 }
 
 function stableErrorMessage(error: ImportErrorLike): string {
   const messages: Record<string, string> = {
     UNSUPPORTED_VIDEO_FORMAT: '暂不支持这个视频格式，请选择 MP4、MOV、MKV 或 WebM 文件。',
-    LOCAL_FILE_UNREADABLE: '无法读取这个视频，请确认文件仍在原位置且未被其他程序占用。',
+    FILE_NOT_FOUND: '无法读取这个视频，请确认文件仍在原位置。',
     INSUFFICIENT_DISK_SPACE: '磁盘空间不足，请清理空间后重试。',
-    CREATOR_NOT_FOUND: '关联的博主已不存在，请重新选择。'
+    MEDIA_COPY_FAILED: '视频复制失败，请检查磁盘空间后重试。',
+    INVALID_CREATOR: '关联的博主已不存在，请重新选择。',
+    INVALID_IMPORT_INPUT: '导入信息不完整，请重新选择视频或检查链接。',
+    INVALID_IMPORT_REQUEST: '导入信息格式无效，请重新选择视频或检查链接。',
+    APP_SHUTTING_DOWN: '应用正在关闭，请重新打开应用后再导入。',
+    RUN_ALREADY_ACTIVE: '已有导入任务正在启动，请稍后再试。',
+    JOB_NOT_RETRYABLE: '这个任务当前无法重试。'
   }
-  return (error.code && messages[error.code]) || error.message || '导入失败，请稍后重试。'
+  return (error.code && messages[error.code]) || '导入失败，请稍后重试。'
+}
+
+function switchTabWithArrow(
+  event: React.KeyboardEvent<HTMLButtonElement>,
+  next: SourceType,
+  nextRef: React.RefObject<HTMLButtonElement | null>,
+  selectSource: (source: SourceType) => void
+): void {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+  event.preventDefault()
+  selectSource(next)
+  requestAnimationFrame(() => nextRef.current?.focus())
 }

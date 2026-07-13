@@ -2,17 +2,27 @@ import { describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ on: vi.fn(), removeListener: vi.fn(), invoke: vi.fn(), exposedApi: undefined as
   { onWorkStateChanged(listener: (workId: string) => void): () => void
-    startImport(request: unknown): Promise<unknown> } | undefined }))
+    startImport(request: unknown): Promise<unknown>
+    getPathForFile(file: File): string } | undefined,
+  getPathForFile: vi.fn() }))
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: vi.fn((_name: string, api: NonNullable<typeof mocks.exposedApi>) => { mocks.exposedApi = api }) },
-  ipcRenderer: { invoke: mocks.invoke, on: mocks.on, removeListener: mocks.removeListener }
+  ipcRenderer: { invoke: mocks.invoke, on: mocks.on, removeListener: mocks.removeListener },
+  webUtils: { getPathForFile: mocks.getPathForFile }
 }))
 
 import '../../src/preload/index'
 import { IPC_CHANNELS } from '../../src/shared/ipc-contract'
 
 describe('preload work events', () => {
+  it('resolves a dropped File through Electron webUtils', () => {
+    const file = new File(['video'], 'clip.mp4')
+    mocks.getPathForFile.mockReturnValueOnce('C:\\clips\\clip.mp4')
+    expect(mocks.exposedApi!.getPathForFile(file)).toBe('C:\\clips\\clip.mp4')
+    expect(mocks.getPathForFile).toHaveBeenCalledWith(file)
+  })
+
   it('removes the exact handler registered for work state changes', () => {
     const listener = vi.fn()
     const unsubscribe = mocks.exposedApi!.onWorkStateChanged(listener)

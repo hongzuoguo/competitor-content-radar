@@ -1,9 +1,9 @@
 import { ExternalLink, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
-import type { CreatorView } from '../../../shared/ipc-contract'
+import type { CreatorView, ImportStartResult } from '../../../shared/ipc-contract'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
-import { ImportWorkDialog, type ImportAcceptedResult } from '../features/works/ImportWorkDialog'
+import { ImportWorkDialog } from '../features/works/ImportWorkDialog'
 import './workspace-pages.css'
 
 const WORKS = [
@@ -12,7 +12,7 @@ const WORKS = [
   { id: '3', creator: '短视频观察局', title: '别急着追热点，先判断它和你的用户有没有关系', published: '昨天 21:10', likes: 12706, viral: 132, score: 84, reasons: ['high-likes', 'value'] }
 ]
 
-export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: ImportAcceptedResult): void } = {}): React.JSX.Element {
+export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: ImportStartResult): void } = {}): React.JSX.Element {
   const [filter, setFilter] = useState<'all' | 'high-likes' | 'viral' | 'value'>('all')
   const [query, setQuery] = useState('')
   const [importOpen, setImportOpen] = useState(false)
@@ -32,9 +32,9 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     requestAnimationFrame(() => importButtonRef.current?.focus())
   }
 
-  function acceptImport(result: ImportAcceptedResult): void {
+  function acceptImport(result: ImportStartResult): void {
     closeImport()
-    setMessage(result.existingWorkId ? '已找到重复作品，正在打开原分析结果' : '任务已启动，请到作品分析查看进度')
+    setMessage('任务已启动，请到作品分析查看进度')
     onImportAccepted?.(result)
   }
 

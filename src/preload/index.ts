@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { APP_METADATA } from '../shared/app-metadata'
 import { IPC_CHANNELS, type DashboardData, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
 import type { CreatorView, PublicSettings } from '../shared/ipc-contract'
@@ -19,6 +19,7 @@ export interface DesktopApi {
   retryUpdate: () => Promise<void>
   onUpdateState: (listener: (state: UpdateState) => void) => () => void
   pickLocalVideo: () => Promise<string | null>
+  getPathForFile: (file: File) => string
   startImport: (request: ImportRequest) => Promise<ImportStartResult>
   retryImport: (workId: string) => Promise<ImportStartResult>
   listWorks: () => Promise<WorkListItem[]>
@@ -45,6 +46,7 @@ const desktopApi: DesktopApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.updateStateChanged, handler)
   },
   pickLocalVideo: () => ipcRenderer.invoke(IPC_CHANNELS.importPickLocal),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   startImport: (request) => invokeImport(IPC_CHANNELS.importStart, request),
   retryImport: (workId) => invokeImport(IPC_CHANNELS.importRetry, workId),
   listWorks: () => ipcRenderer.invoke(IPC_CHANNELS.workList),
