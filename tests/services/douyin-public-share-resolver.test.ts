@@ -7,11 +7,13 @@ import {
 const ID = '7659607768617307402'
 
 function routerHtml(aweme: Record<string, unknown>): string {
-  return `<html><script>window._ROUTER_DATA = ${JSON.stringify({ loaderData: { 'video_(id)': { videoInfoRes: { item_list: [aweme] } } } })};</script></html>`
+  return `<html><script>window._ROUTER_DATA = ${JSON.stringify({ loaderData: { 'video_(id)/page': { videoInfoRes: { item_list: [aweme] } } } })};</script></html>`
 }
 
 function response(body: string, init: ResponseInit = {}): Response {
-  return new Response(body, { status: 200, ...init })
+  const headers = new Headers(init.headers)
+  if (!headers.has('content-type')) headers.set('content-type', 'text/html; charset=utf-8')
+  return new Response(body, { status: 200, ...init, headers })
 }
 
 function video(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -57,7 +59,7 @@ describe('Douyin public share resolver', () => {
   it('supports note loader and camelCase field variants without media', async () => {
     const payload = {
       loaderData: {
-        'note_(id)': {
+        'note_(id)/page': {
           itemInfo: {
             awemeId: ID,
             title: '图文作品',
@@ -105,6 +107,40 @@ describe('Douyin public share resolver', () => {
     expect(error).toMatchObject({ code: 'DOUYIN_RISK_CONTROL' })
   })
 
+  it('does not treat inactive risk-control fields as an active challenge', async () => {
+    const payload = {
+      loaderData: {
+        'video_(id)/page': {
+          risk_control: false,
+          risk_control_enabled: false,
+          videoInfoRes: { item_list: [video()] }
+        }
+      }
+    }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response(`<script>window._ROUTER_DATA=${JSON.stringify(payload)}</script>`)
+    )
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
+  })
+
+  it('ignores matching work-shaped data outside known video and note loaders', async () => {
+    const payload = { loaderData: { analytics: { event: video() } } }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response(`<script>window._ROUTER_DATA=${JSON.stringify(payload)}</script>`)
+    )
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
+  it('returns null for a non-HTML response even when it contains a router marker', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response(routerHtml(video()), { headers: { 'content-type': 'application/json' } })
+    )
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
   it('rejects a non-numeric video ID before fetching', async () => {
     const fetcher = vi.fn<typeof fetch>()
     await expect(resolvePublicDouyinVideo('12x', { fetcher })).rejects.toThrow('INVALID_DOUYIN_VIDEO_ID')
@@ -150,7 +186,9 @@ describe('Douyin public share resolver', () => {
       },
       cancel
     })
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(body))
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, {
+      headers: { 'content-type': 'text/html' }
+    }))
 
     await expect(resolvePublicDouyinVideo(ID, { fetcher, maxBodyBytes: 100 })).rejects.toMatchObject({
       code: 'DOUYIN_PUBLIC_SHARE_BODY_TOO_LARGE'
@@ -199,6 +237,7 @@ describe('Douyin public share resolver', () => {
 
   it.each([
     'http://media.example.com/video.mp4',
+    'javascript:alert(1)',
     'https://user:secret@media.example.com/video.mp4',
     'https://media.example.com:444/video.mp4'
   ])('drops unsafe media URL %s', async (mediaUrl) => {

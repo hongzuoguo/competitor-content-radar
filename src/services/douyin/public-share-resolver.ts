@@ -1,4 +1,5 @@
 import { findWorkRecordsFromPayload } from './discovery'
+import { isRiskControlText } from './risk-control'
 
 const SHARE_HOSTS = new Set(['iesdouyin.com', 'www.iesdouyin.com', 'douyin.com', 'www.douyin.com'])
 const DEFAULT_TIMEOUT_MS = 12_000
@@ -63,13 +64,18 @@ export async function resolvePublicDouyinVideo(
       fetcher,
       controller.signal
     )
+    if (!isHtmlResponse(response)) {
+      await response.body?.cancel().catch(() => undefined)
+      return null
+    }
     const body = await readLimitedBody(response, maxBodyBytes)
-    if (hasRiskControlSignal(body)) throw new DouyinRiskControlError()
+    if (isRiskControlText(body)) throw new DouyinRiskControlError()
     if (!response.ok) return null
 
     const payload = parseRouterData(body)
     if (!payload) return null
-    const raw = findWorkRecordsFromPayload(videoId, payload)[0]
+    if (isRiskControlText(JSON.stringify(payload))) throw new DouyinRiskControlError()
+    const raw = findKnownLoaderWork(videoId, payload)
     return raw ? toPublicVideo(videoId, raw) : null
   } catch (error) {
     if (controller.signal.aborted && controller.signal.reason === timeoutError) throw timeoutError
@@ -78,6 +84,11 @@ export async function resolvePublicDouyinVideo(
   } finally {
     clearTimeout(timer)
   }
+}
+
+function isHtmlResponse(response: Response): boolean {
+  const contentType = response.headers.get('content-type') ?? ''
+  return /^text\/html(?:\s*;|\s*$)/i.test(contentType)
 }
 
 async function fetchWithRedirects(
@@ -190,6 +201,20 @@ function parseRouterData(html: string): unknown | null {
   return null
 }
 
+function findKnownLoaderWork(
+  videoId: string,
+  payload: unknown
+): Record<string, unknown> | null {
+  const loaderData = asRecord(asRecord(payload).loaderData)
+  for (const key of ['video_(id)/page', 'note_(id)/page']) {
+    const routeData = loaderData[key]
+    if (routeData == null) continue
+    const raw = findWorkRecordsFromPayload(videoId, routeData)[0]
+    if (raw) return raw
+  }
+  return null
+}
+
 function toPublicVideo(videoId: string, raw: Record<string, unknown>): PublicDouyinVideo {
   const statistics = asRecord(raw.statistics)
   const author = asRecord(raw.author)
@@ -262,8 +287,4 @@ function countValue(value: unknown): number | null {
   if (value == null || value === '') return null
   const number = Number(value)
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : null
-}
-
-function hasRiskControlSignal(value: string): boolean {
-  return /访问过于频繁|安全验证|人机验证|验证码|captcha[_ -]?challenge|risk[_ -]?control/i.test(value)
 }
