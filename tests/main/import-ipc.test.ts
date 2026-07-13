@@ -39,9 +39,11 @@ describe('import IPC', () => {
   })
 
   it.each([
-    null, [], {}, { type: 'unknown', path: 'x', creatorId: null },
-    { type: 'local', path: '', creatorId: null }, { type: 'local', path: 'x', creatorId: 3 },
-    { type: 'douyin', url: '', creatorId: null }, Object.assign(Object.create({ polluted: true }), { type: 'local', path: 'x', creatorId: null })
+    null, [], {}, { source: { type: 'unknown', path: 'x' }, creatorId: null },
+    { source: { type: 'local', path: '' }, creatorId: null }, { source: { type: 'local', path: 'x' }, creatorId: 3 },
+    { source: { type: 'douyin_url', url: '' }, creatorId: null },
+    { source: Object.assign(Object.create({ polluted: true }), { type: 'local', path: 'x' }), creatorId: null },
+    Object.assign(Object.create({ polluted: true }), { source: { type: 'local', path: 'x' }, creatorId: null })
   ])('rejects invalid import payload %# without calling the service', async (payload) => {
     const deps = dependencies()
     registerIpcHandlers(deps)
@@ -53,8 +55,8 @@ describe('import IPC', () => {
     const deps = dependencies()
     vi.mocked(deps.startImport).mockResolvedValue({ accepted: true, workId: 'work-1' })
     registerIpcHandlers(deps)
-    await handlers.get(IPC_CHANNELS.importStart)?.({}, { type: 'local', path: ' clip.mp4 ', creatorId: null, ignored: 'value' })
-    expect(deps.startImport).toHaveBeenCalledWith({ type: 'local', path: 'clip.mp4', creatorId: null })
+    await handlers.get(IPC_CHANNELS.importStart)?.({}, { source: { type: 'local', path: ' clip.mp4 ', ignored: 'value' }, ignored: 'value' })
+    expect(deps.startImport).toHaveBeenCalledWith({ source: { type: 'local', path: 'clip.mp4' }, creatorId: null })
     await expect(Promise.resolve().then(() => handlers.get(IPC_CHANNELS.importRetry)?.({}, ' '))).rejects.toThrow('INVALID_IMPORT_RETRY')
     expect(deps.retryImport).not.toHaveBeenCalled()
   })

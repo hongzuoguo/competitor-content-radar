@@ -58,15 +58,16 @@ export class ImportService {
 
   async start(request: ImportRequest): Promise<ImportStartResult> {
     if (this.shuttingDown) throw new ImportError('APP_SHUTTING_DOWN', 'The application is shutting down.')
-    this.validateCreator(request.creatorId)
-    const input = request.type === 'local' ? request.path : request.url
+    const creatorId = request.creatorId ?? null
+    this.validateCreator(creatorId)
+    const input = request.source.type === 'local' ? request.source.path : request.source.url
     if (!input.trim()) throw new ImportError('INVALID_IMPORT_INPUT', 'An import source is required.')
     const workId = randomUUID()
     const work: Work = {
-      id: workId, creatorId: request.creatorId, platformWorkId: null,
-      sourceType: request.type === 'local' ? 'local_file' : 'douyin_url',
+      id: workId, creatorId, platformWorkId: null,
+      sourceType: request.source.type === 'local' ? 'local_file' : 'douyin_url',
       sourceKey: `pending:${workId}`, mediaPath: null,
-      title: request.type === 'local' ? basename(request.path) : 'Douyin video',
+      title: request.source.type === 'local' ? basename(request.source.path) : 'Douyin video',
       publishedAt: now(), originalUrl: null, downloadUrl: null,
       metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
     }
@@ -160,9 +161,9 @@ export class ImportService {
     if (!work) throw new Error('IMPORT_RECORD_MISSING')
     if (work.sourceKey.startsWith('pending:')) {
       if (!request) throw Object.assign(new Error('Preparation input unavailable'), { code: 'IMPORT_PREPARATION_MISSING' })
-      const source = request.type === 'local'
-        ? await this.dependencies.ingestLocal(request.path, this.dependencies.mediaRoot)
-        : await this.dependencies.resolveDouyin(request.url)
+      const source = request.source.type === 'local'
+        ? await this.dependencies.ingestLocal(request.source.path, this.dependencies.mediaRoot)
+        : await this.dependencies.resolveDouyin(request.source.url)
       const duplicate = this.dependencies.repositories.works.findBySource(source.sourceType, source.sourceKey)
       if (duplicate && duplicate.id !== workId) {
         this.recordDuplicate(workId, duplicate.id)
@@ -177,7 +178,7 @@ export class ImportService {
             originalUrl: source.originalUrl,
             downloadUrl: 'downloadUrl' in source ? source.downloadUrl : null
           })
-          this.stage(workId, request.type === 'local' ? 'downloaded' : 'discovered')
+          this.stage(workId, request.source.type === 'local' ? 'downloaded' : 'discovered')
         })
         this.emit(workId)
       } catch (error) {
@@ -275,7 +276,13 @@ export class ImportService {
   }
 
   private emit(workId: string): void {
-    for (const listener of this.listeners) listener(workId)
+    for (const listener of this.listeners) {
+      try {
+        listener(workId)
+      } catch {
+        // A destroyed renderer must not affect committed import state.
+      }
+    }
   }
 }
 

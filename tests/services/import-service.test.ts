@@ -46,7 +46,7 @@ describe('ImportService', () => {
     const service = new ImportService(deps)
 
     const result = await Promise.race([
-      service.start({ type: 'local', path: 'source.mp4', creatorId: null }),
+      service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null }),
       new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('START_BLOCKED')), 20))
     ])
     expect(result).toEqual({ accepted: true, workId: expect.any(String) })
@@ -66,7 +66,7 @@ describe('ImportService', () => {
       observed.push({ workId, status: repositories.jobs.get(workId)?.status })
     })
 
-    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
     expect(observed).toEqual([{ workId: started.workId, status: 'running' }])
     unsubscribe()
     finishPreparation({ sourceType: 'local_file', sourceKey: 'sha256:event', title: 'source.mp4', mediaPath: 'managed/event/video.mp4', originalUrl: null })
@@ -74,10 +74,22 @@ describe('ImportService', () => {
     expect(observed).toHaveLength(1)
   })
 
+  it('isolates listener failures from persisted state and background launch', async () => {
+    const service = new ImportService(dependencies())
+    const healthyListener = vi.fn()
+    service.subscribe(() => { throw new Error('renderer destroyed') })
+    service.subscribe(healthyListener)
+
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
+    expect(repositories.jobs.get(started.workId)?.status).toBe('running')
+    await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('completed'))
+    expect(healthyListener).toHaveBeenCalled()
+  })
+
   it('downloads Douyin media into managed storage and then uses the shared processor', async () => {
     const deps = dependencies()
     const service = new ImportService(deps)
-    const result = await service.start({ type: 'douyin', url: 'https://www.douyin.com/video/42', creatorId: null })
+    const result = await service.start({ source: { type: 'douyin_url', url: 'https://www.douyin.com/video/42' }, creatorId: null })
     expect(result.accepted).toBe(true)
     await vi.waitFor(() => expect(deps.processor.analyze).toHaveBeenCalled())
     expect(deps.download).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('managed'))
@@ -89,7 +101,7 @@ describe('ImportService', () => {
     const resolution = new Promise<never>((_resolve, reject) => { rejectResolution = reject })
     const service = new ImportService(dependencies({ resolveDouyin: vi.fn(() => resolution) }))
     const started = await Promise.race([
-      service.start({ type: 'douyin', url: 'https://v.douyin.com/abc/', creatorId: null }),
+      service.start({ source: { type: 'douyin_url', url: 'https://v.douyin.com/abc/' }, creatorId: null }),
       new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('START_BLOCKED')), 20))
     ])
     expect(started.accepted).toBe(true)
@@ -102,12 +114,12 @@ describe('ImportService', () => {
   it('accepts a provisional duplicate then converges to the existing work without processing', async () => {
     const deps = dependencies()
     const service = new ImportService(deps)
-    const first = await service.start({ type: 'local', path: 'one.mp4', creatorId: null })
+    const first = await service.start({ source: { type: 'local', path: 'one.mp4' }, creatorId: null })
     expect(first.accepted).toBe(true)
     await vi.waitFor(() => expect(repositories.jobs.get(first.workId)?.status).toBe('completed'))
     vi.mocked(deps.processor.extractAudio).mockClear()
 
-    const duplicate = await service.start({ type: 'local', path: 'same.mp4', creatorId: null })
+    const duplicate = await service.start({ source: { type: 'local', path: 'same.mp4' }, creatorId: null })
     expect(duplicate).toEqual({ accepted: true, workId: expect.any(String) })
     if (!duplicate.accepted) throw new Error('expected provisional import')
     await vi.waitFor(() => expect(repositories.jobs.get(duplicate.workId)?.errorCode).toBe('IMPORT_DUPLICATE'))
@@ -118,7 +130,7 @@ describe('ImportService', () => {
   it('validates a non-null creator before ingesting or creating records', async () => {
     const deps = dependencies()
     const service = new ImportService(deps)
-    await expect(service.start({ type: 'local', path: 'private/path.mp4', creatorId: 'missing' }))
+    await expect(service.start({ source: { type: 'local', path: 'private/path.mp4' }, creatorId: 'missing' }))
       .rejects.toMatchObject({ code: 'INVALID_CREATOR' })
     expect(deps.ingestLocal).not.toHaveBeenCalled()
     expect(repositories.works.listAll()).toEqual([])
@@ -127,7 +139,7 @@ describe('ImportService', () => {
 
   it('rejects an empty source before creating provisional records', async () => {
     const service = new ImportService(dependencies())
-    await expect(service.start({ type: 'local', path: '   ', creatorId: null }))
+    await expect(service.start({ source: { type: 'local', path: '   ' }, creatorId: null }))
       .rejects.toMatchObject({ code: 'INVALID_IMPORT_INPUT' })
     expect(repositories.works.listAll()).toEqual([])
     expect(repositories.jobs.list()).toEqual([])
@@ -142,7 +154,7 @@ describe('ImportService', () => {
       transcribe: vi.fn(async () => 'saved transcript'), analyze
     }, report })
     const service = new ImportService(deps)
-    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
     if (!started.accepted) throw new Error('expected accepted import')
     await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('failed'))
     expect(repositories.jobs.get(started.workId)).toMatchObject({ stage: 'transcribed', errorCode: 'AI_FAILED', attemptCount: 1 })
@@ -163,7 +175,7 @@ describe('ImportService', () => {
       ingestLocal: vi.fn().mockRejectedValue(Object.assign(new Error(secret), { code: 'MEDIA_COPY_FAILED' })),
       report
     }))
-    const started = await service.start({ type: 'local', path: secret, creatorId: null })
+    const started = await service.start({ source: { type: 'local', path: secret }, creatorId: null })
     if (!started.accepted) throw new Error('expected accepted import')
     await vi.waitFor(() => expect(report).toHaveBeenCalled())
     const serialized = JSON.stringify(report.mock.calls)
@@ -183,7 +195,7 @@ describe('ImportService', () => {
       originalSave(job)
     })
     const service = new ImportService(deps)
-    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
     if (!started.accepted) throw new Error('expected accepted import')
     await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('failed'))
     expect(repositories.jobs.get(started.workId)?.stage).toBe('transcribed')
@@ -212,8 +224,8 @@ describe('ImportService', () => {
     })
     const service = new ImportService(deps)
     const [one, two] = await Promise.all([
-      service.start({ type: 'local', path: 'one.mp4', creatorId: null }),
-      service.start({ type: 'local', path: 'two.mp4', creatorId: null })
+      service.start({ source: { type: 'local', path: 'one.mp4' }, creatorId: null }),
+      service.start({ source: { type: 'local', path: 'two.mp4' }, creatorId: null })
     ])
     if (!one.accepted || !two.accepted) throw new Error('expected accepted imports')
     await vi.waitFor(() => expect(repositories.jobs.get(two.workId)?.status).toBe('completed'))
@@ -228,7 +240,7 @@ describe('ImportService', () => {
       analyze: vi.fn(async () => ({ result: {}, provider: 'p', model: 'm', promptVersion: 'v1', tokenUsage: null }))
     } })
     const service = new ImportService(deps)
-    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
     if (!started.accepted) throw new Error('expected accepted import')
     await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('failed'))
     expect(repositories.jobs.get(started.workId)?.stage).toBe('audio_extracted')
@@ -246,7 +258,7 @@ describe('ImportService', () => {
       transcribe: vi.fn(async () => 'words'),
       analyze: vi.fn(async () => ({ result: {}, provider: 'p', model: 'm', promptVersion: 'v1', tokenUsage: null }))
     } }))
-    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
     if (!started.accepted) throw new Error('expected accepted import')
     await expect(service.retry(started.workId)).rejects.toMatchObject({ code: 'RUN_ALREADY_ACTIVE' })
     release()
@@ -262,13 +274,13 @@ describe('ImportService', () => {
       transcribe: vi.fn(async () => 'words'),
       analyze: vi.fn(async () => ({ result: {}, provider: 'p', model: 'm', promptVersion: 'v1', tokenUsage: null }))
     } }))
-    const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
     if (!started.accepted) throw new Error('expected accepted import')
     let drained = false
     const shutdown = service.shutdown().then(() => { drained = true })
     await Promise.resolve()
     expect(drained).toBe(false)
-    await expect(service.start({ type: 'local', path: 'another.mp4', creatorId: null }))
+    await expect(service.start({ source: { type: 'local', path: 'another.mp4' }, creatorId: null }))
       .rejects.toMatchObject({ code: 'APP_SHUTTING_DOWN' })
     release()
     await shutdown
@@ -292,7 +304,7 @@ describe('ImportService', () => {
         ingestLocal: vi.fn(async () => { throw new Error('preparation failed') }),
         report: vi.fn(() => { throw new Error('LOGGER_FAILED') })
       }))
-      const started = await service.start({ type: 'local', path: 'source.mp4', creatorId: null })
+      const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
       if (!started.accepted) throw new Error('expected accepted import')
       failWrites = true
       await service.shutdown()

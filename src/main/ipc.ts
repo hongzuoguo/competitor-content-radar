@@ -84,13 +84,18 @@ function parseImportRequest(value: unknown): ImportRequest {
     throw new Error('INVALID_IMPORT_REQUEST')
   }
   const request = value as Record<string, unknown>
-  const creatorId = request.creatorId
+  const creatorId = request.creatorId ?? null
   if (creatorId !== null && typeof creatorId !== 'string') throw new Error('INVALID_IMPORT_REQUEST')
-  if (request.type === 'local' && typeof request.path === 'string' && request.path.trim()) {
-    return { type: 'local', path: request.path.trim(), creatorId }
+  const source = request.source
+  if (!source || typeof source !== 'object' || Array.isArray(source) || Object.getPrototypeOf(source) !== Object.prototype) {
+    throw new Error('INVALID_IMPORT_REQUEST')
   }
-  if (request.type === 'douyin' && typeof request.url === 'string' && request.url.trim()) {
-    return { type: 'douyin', url: request.url.trim(), creatorId }
+  const sourceValue = source as Record<string, unknown>
+  if (sourceValue.type === 'local' && typeof sourceValue.path === 'string' && sourceValue.path.trim()) {
+    return { source: { type: 'local', path: sourceValue.path.trim() }, creatorId }
+  }
+  if (sourceValue.type === 'douyin_url' && typeof sourceValue.url === 'string' && sourceValue.url.trim()) {
+    return { source: { type: 'douyin_url', url: sourceValue.url.trim() }, creatorId }
   }
   throw new Error('INVALID_IMPORT_REQUEST')
 }

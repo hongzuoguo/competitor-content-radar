@@ -95,10 +95,10 @@ describe('desktop runtime assembly', () => {
       imports
     )
 
-    await expect(runtime.startImport({ type: 'local', path: 'clip.mp4', creatorId: null }))
+    await expect(runtime.startImport({ source: { type: 'local', path: 'clip.mp4' }, creatorId: null }))
       .resolves.toEqual({ accepted: true, workId: 'import-1' })
     await expect(runtime.retryImport('import-1')).resolves.toEqual({ accepted: true, workId: 'import-1' })
-    expect(imports.start).toHaveBeenCalledWith({ type: 'local', path: 'clip.mp4', creatorId: null })
+    expect(imports.start).toHaveBeenCalledWith({ source: { type: 'local', path: 'clip.mp4' }, creatorId: null })
     expect(imports.retry).toHaveBeenCalledWith('import-1')
   })
 

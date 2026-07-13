@@ -22,9 +22,12 @@ export const IPC_CHANNELS = {
   workStateChanged: 'works:state-changed'
 } as const
 
-export type ImportRequest =
-  | { type: 'local'; path: string; creatorId: string | null }
-  | { type: 'douyin'; url: string; creatorId: string | null }
+export interface ImportRequest {
+  source:
+    | { type: 'local'; path: string }
+    | { type: 'douyin_url'; url: string }
+  creatorId?: string | null
+}
 
 export type ImportStartResult = { accepted: true; workId: string }
 
