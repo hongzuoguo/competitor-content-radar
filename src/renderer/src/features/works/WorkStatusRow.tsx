@@ -76,7 +76,7 @@ export function WorkStatusRow({
         {work.status === 'failed' ? (
           <div className="work-state work-state--failed">
             <strong><AlertCircle aria-hidden="true" size={15} />{FAILED_LABELS[work.stage]}</strong>
-            <span>{work.errorMessage || '处理失败，请稍后重试。'}</span>
+            <span>{stableWorkErrorMessage(work)}</span>
             {retryError ? <span className="form-error" role="alert">{retryError}</span> : null}
           </div>
         ) : null}
@@ -89,6 +89,44 @@ export function WorkStatusRow({
       </td>
     </tr>
   )
+}
+
+const ERROR_MESSAGES: Record<string, string> = {
+  IMPORT_DUPLICATE: '已存在相同作品。',
+  DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE: '无法从该抖音作品获取可下载视频，请改为上传本地视频。',
+  DOUYIN_MEDIA_URL_MISSING: '无法从该抖音作品获取可下载视频，请改为上传本地视频。',
+  APP_INTERRUPTED: '应用上次在处理期间退出，请重试此任务。',
+  SOURCE_INPUT_REQUIRED: '导入来源未准备完成，请重新导入。',
+  IMPORT_PREPARATION_MISSING: '导入来源未准备完成，请重新导入。',
+  FILE_NOT_FOUND: '无法读取视频文件，请确认文件仍在原位置。',
+  UNSUPPORTED_VIDEO_FORMAT: '暂不支持这个视频格式，请选择 MP4、MOV、MKV 或 WebM 文件。',
+  INSUFFICIENT_DISK_SPACE: '磁盘空间不足，请清理空间后重新导入。',
+  MEDIA_COPY_FAILED: '视频准备失败，请确认文件仍可读取并检查磁盘空间。',
+  MEDIA_MISSING: '视频文件不可用，请重新导入。',
+  DOUYIN_DOWNLOAD_FAILED: '抖音视频下载失败，请稍后重试或改为上传本地视频。',
+  AUDIO_EXTRACTION_FAILED: '音频提取失败，请确认视频可以正常播放后重试。',
+  FFMPEG_FAILED: '音频提取失败，请确认视频可以正常播放后重试。',
+  AUDIO_MISSING: '音频文件不可用，请重试此任务。',
+  ASR_FAILED: '文字转写失败，请稍后重试。',
+  TRANSCRIPTION_FAILED: '文字转写失败，请稍后重试。',
+  TRANSCRIPT_MISSING: '文字稿不可用，请重试此任务。',
+  AI_FAILED: 'AI 服务暂时不可用，请稍后重试。',
+  AI_TIMEOUT: 'AI 服务暂时不可用，请稍后重试。',
+  ANALYSIS_FAILED: 'AI 服务暂时不可用，请稍后重试。'
+}
+
+export function stableWorkErrorMessage(work: Pick<WorkListItem, 'errorCode' | 'stage'>): string {
+  if (work.errorCode && ERROR_MESSAGES[work.errorCode]) return ERROR_MESSAGES[work.errorCode]
+  const fallback: Record<WorkListItem['stage'], string> = {
+    discovered: '视频准备失败，请稍后重试或重新导入。',
+    downloaded: '音频提取失败，请确认视频可以正常播放后重试。',
+    audio_extracted: '文字转写失败，请稍后重试。',
+    transcribed: 'AI 服务暂时不可用，请稍后重试。',
+    analyzed: '结果保存失败，请稍后重试。',
+    synced: '同步失败，请稍后重试。',
+    completed: '任务未能完成，请稍后重试。'
+  }
+  return fallback[work.stage]
 }
 
 function HighlightBadges({ work }: { work: WorkListItem }): React.JSX.Element {

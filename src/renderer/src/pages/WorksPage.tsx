@@ -15,7 +15,8 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   const [allWorks, setAllWorks] = useState<WorkListItem[]>([])
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [importOpen, setImportOpen] = useState(false)
-  const [preferredCreatorName, setPreferredCreatorName] = useState<string>()
+  const [initialCreatorId, setInitialCreatorId] = useState<string | null>()
+  const [initialLocalPath, setInitialLocalPath] = useState<string>()
   const [creators, setCreators] = useState<CreatorView[]>([])
   const [creatorLoadState, setCreatorLoadState] = useState<CreatorLoadState>('loading')
   const [message, setMessage] = useState('')
@@ -23,8 +24,9 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const mountedRef = useRef(false)
   const requestRef = useRef(0)
+  const pendingImportIdRef = useRef<string | undefined>(undefined)
 
-  const refreshWorks = useCallback(async (showLoading = false): Promise<void> => {
+  const refreshWorks = useCallback(async (showLoading = false, duplicateCandidateId?: string): Promise<void> => {
     if (!mountedRef.current) return
     const request = ++requestRef.current
     if (showLoading && mountedRef.current) setLoadState('loading')
@@ -37,8 +39,11 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
       if (!mountedRef.current || request !== requestRef.current) return
       setAllWorks(nextWorks)
       setLoadState('ready')
-      const duplicate = nextWorks.find((work) => work.errorCode === 'IMPORT_DUPLICATE' && work.existingWorkId)
+      const duplicate = pendingImportIdRef.current && duplicateCandidateId === pendingImportIdRef.current
+        ? nextWorks.find((work) => work.id === duplicateCandidateId && work.errorCode === 'IMPORT_DUPLICATE' && work.existingWorkId)
+        : undefined
       if (duplicate?.existingWorkId && nextWorks.some((work) => work.id === duplicate.existingWorkId)) {
+        pendingImportIdRef.current = undefined
         setFocusedWorkId(duplicate.existingWorkId)
         setFilter('all')
         setQuery('')
@@ -53,7 +58,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     mountedRef.current = true
     void refreshWorks(true)
     const unsubscribe = typeof window.desktopApi?.onWorkStateChanged === 'function'
-      ? window.desktopApi.onWorkStateChanged(() => { void refreshWorks() })
+      ? window.desktopApi.onWorkStateChanged((workId) => { void refreshWorks(false, workId) })
       : () => undefined
     return () => {
       mountedRef.current = false
@@ -73,8 +78,9 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     return true
   }), [allWorks, filter, query])
 
-  function openImport(creatorName?: string): void {
-    setPreferredCreatorName(creatorName)
+  function openImport(options: { creatorId?: string | null; localPath?: string } = {}): void {
+    setInitialCreatorId(options.creatorId)
+    setInitialLocalPath(options.localPath)
     setImportOpen(true)
     setMessage('')
     void loadCreators()
@@ -98,9 +104,10 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   }
 
   function acceptImport(result: ImportStartResult): void {
+    pendingImportIdRef.current = result.workId
     closeImport()
     setMessage('任务已启动，请到作品分析查看进度')
-    void refreshWorks()
+    void refreshWorks(false, result.workId)
     onImportAccepted?.(result)
   }
 
@@ -108,6 +115,15 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
     await window.desktopApi.retryImport(workId)
     setMessage('任务已重新启动。')
     await refreshWorks()
+  }
+
+  async function chooseLocalFallback(work: WorkListItem): Promise<void> {
+    try {
+      const path = await window.desktopApi.pickLocalVideo()
+      if (path) openImport({ creatorId: work.creatorId, localPath: path })
+    } catch {
+      setMessage('无法打开文件选择器，请稍后重试。')
+    }
   }
 
   return (
@@ -131,9 +147,9 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
       {loadState === 'ready' && allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE').length === 0 ? <div className="works-state"><strong>还没有作品</strong><span>导入本地视频或单条抖音作品，完成后会在这里显示拆解结果。</span><Button onClick={() => openImport()}>导入第一个作品</Button></div> : null}
       {loadState === 'ready' && allWorks.length > 0 && works.length === 0 ? <div className="works-state"><strong>没有符合条件的作品</strong><span>可以更换筛选条件或搜索关键词。</span></div> : null}
       {loadState === 'ready' && works.length > 0 ? (
-        <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断与进度</th><th><span className="visually-hidden">操作</span></th></tr></thead><tbody>{works.map((work) => <WorkStatusRow focusOnRender={focusedWorkId === work.id} key={work.id} onLocalFallback={(item) => openImport(item.creatorName)} onRetry={retryImport} work={work} />)}</tbody></table></div>
+        <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断与进度</th><th><span className="visually-hidden">操作</span></th></tr></thead><tbody>{works.map((work) => <WorkStatusRow focusOnRender={focusedWorkId === work.id} key={work.id} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} work={work} />)}</tbody></table></div>
       ) : null}
-      {importOpen ? <ImportWorkDialog creatorLoadState={creatorLoadState} creators={creators} initialCreatorName={preferredCreatorName} onAccepted={acceptImport} onClose={closeImport} onRetryCreators={() => void loadCreators()} /> : null}
+      {importOpen ? <ImportWorkDialog creatorLoadState={creatorLoadState} creators={creators} initialCreatorId={initialCreatorId} initialLocalPath={initialLocalPath} onAccepted={acceptImport} onClose={closeImport} onRetryCreators={() => void loadCreators()} /> : null}
     </div>
   )
 }

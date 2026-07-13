@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppDatabase } from '../../src/services/database/database'
 import { DesktopRuntime } from '../../src/main/runtime'
 import type { Work } from '../../src/core/domain'
-import type { ImportService } from '../../src/services/import/import-service'
+import { ImportService } from '../../src/services/import/import-service'
 import { AppRepositories } from '../../src/services/database/repositories'
 
 describe('desktop runtime assembly', () => {
@@ -115,9 +115,30 @@ describe('desktop runtime assembly', () => {
 
     const works = await runtime.listWorks()
     expect(works).toEqual([
-      expect.objectContaining({ id: 'failed-1', creatorName: '未分类作品', status: 'failed', stage: 'transcribed', errorCode: 'AI_TIMEOUT', retryable: true, existingWorkId: 'monitor-1' }),
-      expect.objectContaining({ id: 'monitor-1', creatorName: 'Alice', status: 'completed', stage: 'completed', likes: 12, referenceValueScore: 91 })
+      expect.objectContaining({ id: 'failed-1', creatorId: null, creatorName: '未分类作品', status: 'failed', stage: 'transcribed', errorCode: 'AI_TIMEOUT', retryable: true, existingWorkId: 'monitor-1' }),
+      expect.objectContaining({ id: 'monitor-1', creatorId: 'creator-1', creatorName: 'Alice', status: 'completed', stage: 'completed', likes: 12, referenceValueScore: 91 })
     ])
+  })
+
+  it('reads a real persisted import failure without losing its stable code or creator id', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.creators.create({ id: 'creator-1', platform: 'douyin', name: 'Alice', profileUrl: 'https://www.douyin.com/user/alice', enabled: true, createdAt: '2026-01-01T00:00:00.000Z' })
+    const imports = new ImportService({
+      repositories,
+      mediaRoot: 'managed',
+      ingestLocal: vi.fn().mockRejectedValue(Object.assign(new Error('C:\\private\\secret.mp4'), { code: 'MEDIA_COPY_FAILED' })),
+      resolveDouyin: vi.fn(),
+      download: vi.fn(),
+      processor: { extractAudio: vi.fn(), transcribe: vi.fn(), analyze: vi.fn() },
+      getSettings: vi.fn(() => ({}))
+    })
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() }, imports)
+
+    const started = await runtime.startImport({ source: { type: 'local', path: 'C:\\private\\secret.mp4' }, creatorId: 'creator-1' })
+    await vi.waitFor(async () => expect((await runtime.listWorks()).find((work) => work.id === started.workId)?.status).toBe('failed'))
+    expect((await runtime.listWorks()).find((work) => work.id === started.workId)).toMatchObject({
+      creatorId: 'creator-1', creatorName: 'Alice', errorCode: 'MEDIA_COPY_FAILED', errorMessage: 'Import processing failed.'
+    })
   })
 
   it('loads work list relations with a constant number of database queries', async () => {

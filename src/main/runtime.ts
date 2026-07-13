@@ -98,6 +98,7 @@ export class DesktopRuntime {
       const evaluation = evaluateHighlight(work.metrics, baselines.get(work.id) ?? [], referenceValueScore)
       return {
         id: work.id,
+        creatorId: work.creatorId,
         creatorName: (work.creatorId ? creatorNames.get(work.creatorId) : undefined) ?? '未分类作品',
         title: work.title,
         sourceType: work.sourceType,

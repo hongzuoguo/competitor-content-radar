@@ -14,14 +14,16 @@ interface ImportErrorLike {
 export function ImportWorkDialog({
   creators,
   creatorLoadState,
-  initialCreatorName,
+  initialCreatorId,
+  initialLocalPath,
   onAccepted,
   onClose,
   onRetryCreators
 }: {
   creators: CreatorView[]
   creatorLoadState: CreatorLoadState
-  initialCreatorName?: string
+  initialCreatorId?: string | null
+  initialLocalPath?: string
   onAccepted(result: ImportStartResult): void
   onClose(): void
   onRetryCreators(): void
@@ -35,9 +37,9 @@ export function ImportWorkDialog({
   const localErrorId = useId()
   const creatorHelpId = useId()
   const [sourceType, setSourceType] = useState<SourceType>('local')
-  const [localPath, setLocalPath] = useState('')
+  const [localPath, setLocalPath] = useState(initialLocalPath ?? '')
   const [url, setUrl] = useState('')
-  const [creatorId, setCreatorId] = useState('')
+  const [creatorId, setCreatorId] = useState(initialCreatorId ?? '')
   const [fieldError, setFieldError] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -53,12 +55,6 @@ export function ImportWorkDialog({
   useEffect(() => {
     setConfirmedUnclassified(false)
   }, [creatorLoadState])
-
-  useEffect(() => {
-    if (!initialCreatorName || creatorLoadState !== 'ready' || creatorId) return
-    const matchingCreator = creators.find((creator) => creator.name === initialCreatorName)
-    if (matchingCreator) setCreatorId(matchingCreator.id)
-  }, [creatorId, creatorLoadState, creators, initialCreatorName])
 
   function selectSource(next: SourceType): void {
     setSourceType(next)

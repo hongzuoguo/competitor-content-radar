@@ -40,6 +40,7 @@ export type ImportInvokeResult =
 
 export interface WorkListItem {
   id: string
+  creatorId: string | null
   creatorName: string
   title: string
   sourceType: 'douyin_monitor' | 'douyin_url' | 'local_file'
