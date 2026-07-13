@@ -287,11 +287,21 @@ describe('work analysis library', () => {
     expect(await screen.findByText('本地样片')).toBeInTheDocument()
   })
 
-  it('focuses a work requested by a desktop notification after loading', async () => {
-    desktopApi.listWorks = vi.fn().mockResolvedValue([completed])
-    render(<WorksPage requestedWorkId={completed.id} />)
+  it('consumes every notification request token even for the same work', async () => {
+    const failedThenCompleted = { ...failed, id: completed.id, title: completed.title }
+    desktopApi.listWorks = vi.fn().mockResolvedValueOnce([failedThenCompleted]).mockResolvedValue([completed])
+    const view = render(<WorksPage focusRequest={{ workId: completed.id, requestId: 'request-1' }} />)
 
     const row = await screen.findByRole('row', { name: new RegExp(completed.title) })
     await waitFor(() => expect(row).toHaveFocus())
+    expect(screen.getByText('AI 拆解失败')).toBeInTheDocument()
+    const search = screen.getByRole('textbox', { name: '搜索作品' })
+    fireEvent.change(search, { target: { value: '不会匹配' } })
+    search.focus()
+    emitWorkChange?.(completed.id)
+    view.rerender(<WorksPage focusRequest={{ workId: completed.id, requestId: 'request-2' }} />)
+    await waitFor(() => expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus())
+    expect(screen.getByText('18,642')).toBeInTheDocument()
+    expect(search).toHaveValue('')
   })
 })

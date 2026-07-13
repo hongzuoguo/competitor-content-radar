@@ -3,7 +3,7 @@ import { autoUpdater } from 'electron-updater'
 import log from 'electron-log/main'
 import { join } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type WorkFocusRequest } from '../shared/ipc-contract'
 import { AppScheduler } from './scheduler'
 import { registerIpcHandlers } from './ipc'
 import { createAppTray } from './tray'
@@ -91,13 +91,13 @@ function createMainWindow(): BrowserWindow {
   return window
 }
 
-function focusImportedWork(workId: string): void {
+function focusImportedWork(request: WorkFocusRequest): void {
   if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
   mainWindow.show()
   mainWindow.focus()
   const send = (): void => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send(IPC_CHANNELS.workFocusRequested, workId)
+      mainWindow.webContents.send(IPC_CHANNELS.workFocusRequested, request)
     }
   }
   if (mainWindow.webContents.isLoading()) mainWindow.webContents.once('did-finish-load', send)

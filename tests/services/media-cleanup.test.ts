@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -140,5 +140,74 @@ describe('local media handling', () => {
       eligiblePaths: new Set(),
       protectedPaths: new Set()
     })).toEqual([])
+  })
+
+  it('fails closed when the managed root is replaced by a directory link', ({ skip }) => {
+    const expectedRoot = mkdtempSync(join(tmpdir(), 'radar-media-'))
+    const outsideDirectory = mkdtempSync(join(tmpdir(), 'radar-external-'))
+    directories.push(expectedRoot, outsideDirectory)
+    const outside = join(outsideDirectory, 'old.mp4')
+    writeFileSync(outside, 'source')
+    utimesSync(outside, new Date('2026-06-01'), new Date('2026-06-01'))
+    rmSync(expectedRoot, { recursive: true })
+    try {
+      symlinkSync(outsideDirectory, expectedRoot, process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error.code === 'EPERM' || error.code === 'EACCES')) skip()
+      throw error
+    }
+
+    expect(cleanupExpiredMedia(expectedRoot, {
+      retentionDays: 1,
+      eligiblePaths: new Set([join(expectedRoot, 'old.mp4')]),
+      protectedPaths: new Set()
+    }, new Date('2026-07-11T00:00:00Z'))).toEqual([])
+    expect(readFileSync(outside, 'utf8')).toBe('source')
+  })
+
+  it('never follows a linked child directory outside the confirmed root', ({ skip }) => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-media-'))
+    const outsideDirectory = mkdtempSync(join(tmpdir(), 'radar-external-'))
+    directories.push(directory, outsideDirectory)
+    const outside = join(outsideDirectory, 'old.mp4')
+    const linkedDirectory = join(directory, 'linked')
+    writeFileSync(outside, 'source')
+    utimesSync(outside, new Date('2026-06-01'), new Date('2026-06-01'))
+    try {
+      symlinkSync(outsideDirectory, linkedDirectory, process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error.code === 'EPERM' || error.code === 'EACCES')) skip()
+      throw error
+    }
+
+    expect(cleanupExpiredMedia(directory, {
+      retentionDays: 1,
+      eligiblePaths: new Set([join(linkedDirectory, 'old.mp4')]),
+      protectedPaths: new Set()
+    }, new Date('2026-07-11T00:00:00Z'))).toEqual([])
+    expect(readFileSync(outside, 'utf8')).toBe('source')
+  })
+
+  it('never follows an ordinary file symlink', ({ skip }) => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-media-'))
+    const outsideDirectory = mkdtempSync(join(tmpdir(), 'radar-external-'))
+    directories.push(directory, outsideDirectory)
+    const outside = join(outsideDirectory, 'old.mp4')
+    const linkedFile = join(directory, 'linked.mp4')
+    writeFileSync(outside, 'source')
+    utimesSync(outside, new Date('2026-06-01'), new Date('2026-06-01'))
+    try {
+      symlinkSync(outside, linkedFile, 'file')
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error.code === 'EPERM' || error.code === 'EACCES')) skip()
+      throw error
+    }
+
+    expect(cleanupExpiredMedia(directory, {
+      retentionDays: 1,
+      eligiblePaths: new Set([linkedFile]),
+      protectedPaths: new Set()
+    }, new Date('2026-07-11T00:00:00Z'))).toEqual([])
+    expect(readFileSync(outside, 'utf8')).toBe('source')
   })
 })

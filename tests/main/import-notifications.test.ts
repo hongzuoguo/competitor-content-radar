@@ -15,7 +15,7 @@ function notification(overrides: Record<string, unknown> = {}) {
 }
 
 describe('import desktop notifications', () => {
-  it('shows a Chinese completion notification and focuses only its work id on click', async () => {
+  it('shows a Chinese completion notification and emits a unique request for every click', async () => {
     const item = notification()
     const create = vi.fn(() => item)
     const focusWork = vi.fn()
@@ -28,7 +28,11 @@ describe('import desktop notifications', () => {
     expect(create).toHaveBeenCalledWith({ title: '作品分析完成', body: '作品已完成转写和 AI 拆解，点击查看结果。' })
     expect(item.show).toHaveBeenCalledOnce()
     item.click()
-    expect(focusWork).toHaveBeenCalledWith('work-1')
+    item.click()
+    expect(focusWork).toHaveBeenCalledTimes(2)
+    expect(focusWork.mock.calls[0][0]).toMatchObject({ workId: 'work-1', requestId: expect.any(String) })
+    expect(focusWork.mock.calls[1][0]).toMatchObject({ workId: 'work-1', requestId: expect.any(String) })
+    expect(focusWork.mock.calls[0][0].requestId).not.toBe(focusWork.mock.calls[1][0].requestId)
   })
 
   it('describes the failed stage and a retry next step', async () => {

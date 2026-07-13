@@ -32,6 +32,11 @@ export interface ImportRequest {
 
 export type ImportStartResult = { accepted: true; workId: string }
 
+export interface WorkFocusRequest {
+  workId: string
+  requestId: string
+}
+
 export type ImportInvokeResult =
   | { ok: true; value: ImportStartResult }
   | {

@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs'
+import { lstatSync, readdirSync, realpathSync, rmdirSync, unlinkSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 const DEFAULT_RETENTION_DAYS = 7
@@ -66,6 +66,9 @@ export function cleanupExpiredMedia(
 ): string[] {
   const removed: string[] = []
   const root = resolve(directory)
+  const confirmedRoot = confirmManagedRoot(root)
+  if (!confirmedRoot) return removed
+  const rootBoundary: ManagedRootBoundary = confirmedRoot
   const legacy = optionsOrNow instanceof Date
   const options = legacy ? null : optionsOrNow
   const now = legacy ? optionsOrNow : requestedNow
@@ -80,6 +83,7 @@ export function cleanupExpiredMedia(
   )
 
   function visit(current: string): boolean {
+    if (!rootIsStable(rootBoundary)) return false
     if (protectedDirectories.has(current)) return false
     let names: string[]
     try {
@@ -94,6 +98,8 @@ export function cleanupExpiredMedia(
       try {
         const details = lstatSync(path)
         if (details.isSymbolicLink()) continue
+        const actualPath = resolve(realpathSync(path))
+        if (!samePath(path, actualPath) || !isWithinRoot(rootBoundary.realPath, actualPath)) continue
         if (details.isDirectory()) {
           if (current === root && protectedDirectoryNames.has(name)) continue
           const removedBelow = visit(path)
@@ -104,6 +110,7 @@ export function cleanupExpiredMedia(
           (eligible === null || eligible.has(path)) &&
           now.getTime() - details.mtimeMs >= retentionMs
         ) {
+          if (!rootIsStable(rootBoundary) || !sameEntry(details, lstatSync(path))) continue
           unlinkSync(path)
           removed.push(path)
           removedInTree = true
@@ -117,6 +124,48 @@ export function cleanupExpiredMedia(
 
   visit(root)
   return removed
+}
+
+interface ManagedRootBoundary {
+  path: string
+  realPath: string
+  dev: number | bigint
+  ino: number | bigint
+}
+
+function confirmManagedRoot(root: string): ManagedRootBoundary | null {
+  try {
+    const details = lstatSync(root)
+    if (!details.isDirectory() || details.isSymbolicLink()) return null
+    const actual = resolve(realpathSync(root))
+    if (!samePath(root, actual)) return null
+    return { path: root, realPath: actual, dev: details.dev, ino: details.ino }
+  } catch {
+    return null
+  }
+}
+
+function rootIsStable(root: ManagedRootBoundary): boolean {
+  try {
+    const details = lstatSync(root.path)
+    return details.isDirectory() && !details.isSymbolicLink() && sameEntry(root, details) &&
+      samePath(root.realPath, resolve(realpathSync(root.path)))
+  } catch {
+    return false
+  }
+}
+
+function sameEntry(
+  left: Pick<ManagedRootBoundary, 'dev' | 'ino'>,
+  right: { dev: number | bigint; ino: number | bigint }
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino
+}
+
+function samePath(left: string, right: string): boolean {
+  return process.platform === 'win32'
+    ? left.toLocaleLowerCase('en-US') === right.toLocaleLowerCase('en-US')
+    : left === right
 }
 
 function normalizeManagedPaths(root: string, paths: ReadonlySet<string>): Set<string> {

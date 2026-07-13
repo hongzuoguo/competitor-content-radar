@@ -1,6 +1,6 @@
 import { Plus, Search, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CreatorView, ImportStartResult, WorkListItem } from '../../../shared/ipc-contract'
+import type { CreatorView, ImportStartResult, WorkFocusRequest, WorkListItem } from '../../../shared/ipc-contract'
 import { Button } from '../components/Button'
 import { ImportWorkDialog, type CreatorLoadState } from '../features/works/ImportWorkDialog'
 import { WorkStatusRow } from '../features/works/WorkStatusRow'
@@ -9,9 +9,9 @@ import './workspace-pages.css'
 type WorkFilter = 'all' | 'high-likes' | 'viral' | 'value' | 'processing' | 'failed'
 type LoadState = 'loading' | 'ready' | 'failed'
 
-export function WorksPage({ onImportAccepted, requestedWorkId }: {
+export function WorksPage({ onImportAccepted, focusRequest }: {
   onImportAccepted?(result: ImportStartResult): void
-  requestedWorkId?: string
+  focusRequest?: WorkFocusRequest
 } = {}): React.JSX.Element {
   const [filter, setFilter] = useState<WorkFilter>('all')
   const [query, setQuery] = useState('')
@@ -106,13 +106,13 @@ export function WorksPage({ onImportAccepted, requestedWorkId }: {
   }, [cancelFocusRestore, refreshWorks])
 
   useEffect(() => {
-    if (!requestedWorkId || handledFocusRequestRef.current === requestedWorkId) return
-    if (!allWorks.some((work) => work.id === requestedWorkId && work.errorCode !== 'IMPORT_DUPLICATE')) return
-    handledFocusRequestRef.current = requestedWorkId
+    if (!focusRequest || handledFocusRequestRef.current === focusRequest.requestId) return
+    if (!allWorks.some((work) => work.id === focusRequest.workId && work.errorCode !== 'IMPORT_DUPLICATE')) return
+    handledFocusRequestRef.current = focusRequest.requestId
     setFilter('all')
     setQuery('')
-    setFocusedWorkId(requestedWorkId)
-  }, [allWorks, requestedWorkId])
+    setFocusedWorkId(focusRequest.workId)
+  }, [allWorks, focusRequest])
 
   const nonDuplicateWorks = useMemo(() => allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE'), [allWorks])
   const works = useMemo(() => nonDuplicateWorks.filter((work) => {

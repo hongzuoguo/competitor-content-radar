@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type DashboardData, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type DashboardData, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkFocusRequest, type WorkListItem } from '../shared/ipc-contract'
 import type { CreatorView, PublicSettings } from '../shared/ipc-contract'
 
 export interface DesktopApi {
@@ -24,7 +24,7 @@ export interface DesktopApi {
   retryImport: (workId: string) => Promise<ImportStartResult>
   listWorks: () => Promise<WorkListItem[]>
   onWorkStateChanged: (listener: (workId: string) => void) => () => void
-  onWorkFocusRequested: (listener: (workId: string) => void) => () => void
+  onWorkFocusRequested: (listener: (request: WorkFocusRequest) => void) => () => void
 }
 
 const desktopApi: DesktopApi = {
@@ -57,7 +57,7 @@ const desktopApi: DesktopApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.workStateChanged, handler)
   },
   onWorkFocusRequested: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, workId: string): void => listener(workId)
+    const handler = (_event: Electron.IpcRendererEvent, request: WorkFocusRequest): void => listener(request)
     ipcRenderer.on(IPC_CHANNELS.workFocusRequested, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.workFocusRequested, handler)
   }

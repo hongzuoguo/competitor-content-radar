@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import type { WorkflowStage } from '../core/workflow'
 import type { ImportNotificationPort, ImportTerminalNotification } from '../services/import/import-service'
+import type { WorkFocusRequest } from '../shared/ipc-contract'
 
 export interface DesktopNotification {
   show(): void
@@ -15,7 +17,7 @@ export class ImportNotificationController implements ImportNotificationPort {
 
   constructor(
     private readonly createNotification: DesktopNotificationFactory,
-    private readonly focusWork: (workId: string) => void
+    private readonly focusWork: (request: WorkFocusRequest) => void
   ) {}
 
   async notify(notification: ImportTerminalNotification): Promise<void> {
@@ -23,7 +25,7 @@ export class ImportNotificationController implements ImportNotificationPort {
     try {
       const item = this.createNotification(notificationText(notification))
       this.active.add(item)
-      item.on('click', () => this.focusWork(notification.workId))
+      item.on('click', () => this.focusWork({ workId: notification.workId, requestId: randomUUID() }))
       item.on('close', () => this.active.delete(item))
       item.show()
     } catch {
