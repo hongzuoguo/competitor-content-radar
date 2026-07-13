@@ -24,7 +24,8 @@ export class UpdateService {
   constructor(
     private readonly updater: UpdaterAdapter,
     private readonly isBusinessIdle: () => boolean,
-    private readonly prepareInstall: () => Promise<void> | void = () => undefined
+    private readonly prepareInstall: () => Promise<void> | void = () => undefined,
+    private readonly fallbackQuit: () => Promise<void> | void = () => undefined
   ) {
     this.bindEvents()
   }
@@ -58,9 +59,18 @@ export class UpdateService {
     setTimeout(async () => {
       try {
         await this.prepareInstall()
-        this.updater.quitAndInstall(true, true)
       } catch {
         this.setState({ status: 'error', message: '应用退出准备失败，请稍后重试更新。' })
+        return
+      }
+      try {
+        this.updater.quitAndInstall(true, true)
+      } catch {
+        try {
+          await this.fallbackQuit()
+        } catch {
+          // The app is already drained; fallback exit is best-effort and must not reject.
+        }
       }
     }, 0)
   }

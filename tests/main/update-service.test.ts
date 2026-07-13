@@ -67,6 +67,20 @@ describe('automatic update service', () => {
     vi.useRealTimers()
   })
 
+  it('falls back to a hard exit when installer launch throws after shutdown', async () => {
+    vi.useFakeTimers()
+    const updater = new FakeUpdater()
+    updater.quitAndInstall.mockImplementation(() => { throw new Error('INSTALLER_LAUNCH_FAILED') })
+    const fallbackQuit = vi.fn(async () => { throw new Error('FALLBACK_FAILED') })
+    const service = new UpdateService(updater, () => true, async () => undefined, fallbackQuit)
+    await service.start()
+    updater.emit('update-downloaded', { version: '0.3.0' })
+    await vi.runAllTimersAsync()
+    expect(fallbackQuit).toHaveBeenCalledTimes(1)
+    expect(service.getState()).toEqual({ status: 'installing' })
+    vi.useRealTimers()
+  })
+
   it('keeps the current version usable when update checks fail', async () => {
     const updater = new FakeUpdater()
     const service = new UpdateService(updater, () => true)

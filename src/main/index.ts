@@ -90,7 +90,8 @@ app.whenReady().then(() => {
       async () => {
         await prepareToQuit()
         shutdownComplete = true
-      }
+      },
+      () => app.exit(1)
     )
     runtime.onBusinessIdle(() => updateService?.notifyBusinessIdle())
   }
