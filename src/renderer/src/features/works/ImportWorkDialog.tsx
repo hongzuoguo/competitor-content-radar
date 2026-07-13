@@ -215,8 +215,11 @@ function validateSource(sourceType: SourceType, localPath: string, rawUrl: strin
   const value = rawUrl.trim()
   if (!value) return '请粘贴抖音单条视频链接。'
   try {
-    new URL(value)
+    const parsed = new URL(value)
     if (parseDouyinWorkUrl(value)) return ''
+    if (parsed.protocol !== 'https:' || parsed.port || parsed.username || parsed.password) {
+      return '请输入有效的抖音链接，不支持凭据或自定义端口。'
+    }
     return '请输入抖音单条视频链接，不支持博主主页。'
   } catch {
     return '请输入有效的抖音链接。'

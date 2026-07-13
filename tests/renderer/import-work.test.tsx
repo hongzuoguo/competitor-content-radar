@@ -81,6 +81,23 @@ describe('work import dialog', () => {
     expect(desktopApi.startImport).not.toHaveBeenCalled()
   })
 
+  it.each([
+    'http://www.douyin.com/video/7658288075461725474',
+    'https://user:pass@www.douyin.com/video/7658288075461725474',
+    'https://www.douyin.com:444/video/7658288075461725474'
+  ])('shows security guidance for an unsafe URL: %s', async (url) => {
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
+    await waitForCreators()
+    fireEvent.change(screen.getByLabelText('抖音单条视频链接'), { target: { value: url } })
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '请输入有效的抖音链接，不支持凭据或自定义端口。'
+    )
+    expect(desktopApi.startImport).not.toHaveBeenCalled()
+  })
+
   it('accepts a work opened from a creator modal', async () => {
     const modalUrl = 'https://www.douyin.com/user/self?from_tab_name=main&modal_id=7659607768617307402'
     render(<WorksPage />)
