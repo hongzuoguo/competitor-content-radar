@@ -120,6 +120,21 @@ describe('desktop runtime assembly', () => {
     ])
   })
 
+  it('loads work list relations with a constant number of database queries', async () => {
+    const repositories = new AppRepositories(database.connection)
+    for (let index = 0; index < 4; index += 1) {
+      repositories.works.upsert({ id: `work-${index}`, creatorId: null, platformWorkId: null, sourceType: 'local_file', sourceKey: `sha256:${index}`, mediaPath: `${index}.mp4`, title: `Work ${index}`, publishedAt: `2026-01-0${index + 1}T00:00:00.000Z`, originalUrl: null, downloadUrl: null, metrics: { likes: index, comments: 0, shares: 0, collects: 0 } })
+      repositories.jobs.save({ workId: `work-${index}`, stage: 'completed', status: 'completed', attemptCount: 1, nextAttemptAt: null, errorCode: null, errorMessage: null, updatedAt: '2026-01-01T00:00:00.000Z' })
+    }
+    const prepare = vi.spyOn(database.connection, 'prepare')
+    const imports = { isRetryable: vi.fn(() => false) } as unknown as ImportService
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() }, imports)
+
+    await expect(runtime.listWorks()).resolves.toHaveLength(4)
+    expect(prepare).toHaveBeenCalledTimes(5)
+    expect(imports.isRetryable).not.toHaveBeenCalled()
+  })
+
   it('bridges import work-state subscriptions and unsubscribe', () => {
     const unsubscribe = vi.fn()
     const imports = { subscribe: vi.fn(() => unsubscribe) } as unknown as ImportService

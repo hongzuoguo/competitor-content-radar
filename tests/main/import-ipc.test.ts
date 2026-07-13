@@ -8,6 +8,7 @@ vi.mock('electron', () => ({
 
 import { registerIpcHandlers, type IpcDependencies } from '../../src/main/ipc'
 import { IPC_CHANNELS } from '../../src/shared/ipc-contract'
+import { ImportError } from '../../src/services/import/import-errors'
 
 function dependencies(): IpcDependencies {
   return {
@@ -47,7 +48,9 @@ describe('import IPC', () => {
   ])('rejects invalid import payload %# without calling the service', async (payload) => {
     const deps = dependencies()
     registerIpcHandlers(deps)
-    await expect(Promise.resolve().then(() => handlers.get(IPC_CHANNELS.importStart)?.({}, payload))).rejects.toThrow('INVALID_IMPORT_REQUEST')
+    await expect(handlers.get(IPC_CHANNELS.importStart)?.({}, payload)).resolves.toMatchObject({
+      ok: false, error: { code: 'INVALID_IMPORT_REQUEST', retryable: false }
+    })
     expect(deps.startImport).not.toHaveBeenCalled()
   })
 
@@ -57,7 +60,24 @@ describe('import IPC', () => {
     registerIpcHandlers(deps)
     await handlers.get(IPC_CHANNELS.importStart)?.({}, { source: { type: 'local', path: ' clip.mp4 ', ignored: 'value' }, ignored: 'value' })
     expect(deps.startImport).toHaveBeenCalledWith({ source: { type: 'local', path: 'clip.mp4' }, creatorId: null })
-    await expect(Promise.resolve().then(() => handlers.get(IPC_CHANNELS.importRetry)?.({}, ' '))).rejects.toThrow('INVALID_IMPORT_RETRY')
+    await expect(handlers.get(IPC_CHANNELS.importRetry)?.({}, ' ')).resolves.toMatchObject({
+      ok: false, error: { code: 'INVALID_IMPORT_RETRY', retryable: false }
+    })
     expect(deps.retryImport).not.toHaveBeenCalled()
+  })
+
+  it('serializes import failures into a stable result envelope', async () => {
+    const deps = dependencies()
+    vi.mocked(deps.startImport).mockRejectedValue(new ImportError('INVALID_CREATOR', 'Creator missing', {
+      action: 'Choose another creator', retryable: false
+    }))
+    registerIpcHandlers(deps)
+
+    await expect(handlers.get(IPC_CHANNELS.importStart)?.({}, {
+      source: { type: 'local', path: 'clip.mp4' }, creatorId: 'missing'
+    })).resolves.toEqual({
+      ok: false,
+      error: { code: 'INVALID_CREATOR', message: 'Creator missing', action: 'Choose another creator', retryable: false }
+    })
   })
 })

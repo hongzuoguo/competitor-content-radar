@@ -262,6 +262,19 @@ class JobArtifactRepository {
       updatedAt: String(row.updated_at)
     } : null
   }
+
+  list(): JobArtifactRecord[] {
+    return this.database.prepare('SELECT * FROM job_artifacts').all().map((value) => {
+      const row = value as Record<string, unknown>
+      return {
+        workId: String(row.work_id),
+        wavPath: row.wav_path === null ? null : String(row.wav_path),
+        transcript: row.transcript === null ? null : String(row.transcript),
+        existingWorkId: row.existing_work_id === null ? null : String(row.existing_work_id),
+        updatedAt: String(row.updated_at)
+      }
+    })
+  }
 }
 
 function mapJob(row: Record<string, unknown>): JobRecord {
@@ -380,6 +393,19 @@ class AnalysisRepository {
         : null,
       createdAt: String(row.created_at)
     }
+  }
+
+  list(): AnalysisRecord[] {
+    return this.database.prepare('SELECT * FROM analyses').all().map((value) => {
+      const row = value as Record<string, unknown>
+      return {
+        workId: String(row.work_id), transcript: String(row.transcript),
+        result: JSON.parse(String(row.result_json)) as Record<string, unknown>,
+        provider: String(row.provider), model: String(row.model), promptVersion: String(row.prompt_version),
+        tokenUsage: row.token_usage_json ? JSON.parse(String(row.token_usage_json)) as Record<string, number> : null,
+        createdAt: String(row.created_at)
+      }
+    })
   }
 }
 

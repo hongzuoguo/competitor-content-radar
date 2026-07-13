@@ -1,7 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type CreatorView, type DashboardData, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type CreatorView, type DashboardData, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
 
 export interface IpcDependencies {
   getDashboard(): Promise<DashboardData>
@@ -65,11 +65,11 @@ export function registerIpcHandlers(dependencies: IpcDependencies, updates?: Upd
     const first = result.filePaths[0]
     return first && isAbsolute(first) ? first : null
   })
-  ipcMain.handle(IPC_CHANNELS.importStart, (_event, value: unknown) => dependencies.startImport(parseImportRequest(value)))
-  ipcMain.handle(IPC_CHANNELS.importRetry, (_event, value: unknown) => {
-    if (typeof value !== 'string' || !value.trim()) throw new Error('INVALID_IMPORT_RETRY')
+  ipcMain.handle(IPC_CHANNELS.importStart, (_event, value: unknown) => invokeImport(() => dependencies.startImport(parseImportRequest(value))))
+  ipcMain.handle(IPC_CHANNELS.importRetry, (_event, value: unknown) => invokeImport(() => {
+    if (typeof value !== 'string' || !value.trim()) throw codedError('INVALID_IMPORT_RETRY', 'A work id is required.')
     return dependencies.retryImport(value.trim())
-  })
+  }))
   ipcMain.handle(IPC_CHANNELS.workList, () => dependencies.listWorks())
   ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, value: unknown) => {
     if (typeof value !== 'string') throw new Error('INVALID_EXTERNAL_URL')
@@ -81,14 +81,14 @@ export function registerIpcHandlers(dependencies: IpcDependencies, updates?: Upd
 
 function parseImportRequest(value: unknown): ImportRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
-    throw new Error('INVALID_IMPORT_REQUEST')
+    throw codedError('INVALID_IMPORT_REQUEST', 'The import request is invalid.')
   }
   const request = value as Record<string, unknown>
   const creatorId = request.creatorId ?? null
-  if (creatorId !== null && typeof creatorId !== 'string') throw new Error('INVALID_IMPORT_REQUEST')
+  if (creatorId !== null && typeof creatorId !== 'string') throw codedError('INVALID_IMPORT_REQUEST', 'The import request is invalid.')
   const source = request.source
   if (!source || typeof source !== 'object' || Array.isArray(source) || Object.getPrototypeOf(source) !== Object.prototype) {
-    throw new Error('INVALID_IMPORT_REQUEST')
+    throw codedError('INVALID_IMPORT_REQUEST', 'The import request is invalid.')
   }
   const sourceValue = source as Record<string, unknown>
   if (sourceValue.type === 'local' && typeof sourceValue.path === 'string' && sourceValue.path.trim()) {
@@ -97,5 +97,27 @@ function parseImportRequest(value: unknown): ImportRequest {
   if (sourceValue.type === 'douyin_url' && typeof sourceValue.url === 'string' && sourceValue.url.trim()) {
     return { source: { type: 'douyin_url', url: sourceValue.url.trim() }, creatorId }
   }
-  throw new Error('INVALID_IMPORT_REQUEST')
+  throw codedError('INVALID_IMPORT_REQUEST', 'The import request is invalid.')
+}
+
+async function invokeImport(operation: () => Promise<ImportStartResult>): Promise<ImportInvokeResult> {
+  try {
+    return { ok: true, value: await operation() }
+  } catch (error) {
+    const value = error instanceof Error ? error : new Error('Import failed.')
+    const metadata = value as Error & { code?: unknown; action?: unknown; retryable?: unknown }
+    return {
+      ok: false,
+      error: {
+        code: typeof metadata.code === 'string' ? metadata.code : 'IMPORT_FAILED',
+        message: value.message,
+        ...(typeof metadata.action === 'string' ? { action: metadata.action } : {}),
+        ...(typeof metadata.retryable === 'boolean' ? { retryable: metadata.retryable } : {})
+      }
+    }
+  }
+}
+
+function codedError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code, retryable: false })
 }

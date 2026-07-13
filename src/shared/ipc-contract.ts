@@ -31,6 +31,13 @@ export interface ImportRequest {
 
 export type ImportStartResult = { accepted: true; workId: string }
 
+export type ImportInvokeResult =
+  | { ok: true; value: ImportStartResult }
+  | {
+      ok: false
+      error: { code: string; message: string; action?: string; retryable?: boolean }
+    }
+
 export interface WorkListItem {
   id: string
   creatorName: string

@@ -52,8 +52,7 @@ export class ImportService {
   isRetryable(workId: string): boolean {
     const job = this.dependencies.repositories.jobs.get(workId)
     const work = this.dependencies.repositories.works.get(workId)
-    return Boolean(job && work && job.status === 'failed' && job.errorCode !== 'IMPORT_DUPLICATE' &&
-      job.errorCode !== 'SOURCE_INPUT_REQUIRED' && !work.sourceKey.startsWith('pending:'))
+    return isImportRetryable(job, work)
   }
 
   async start(request: ImportRequest): Promise<ImportStartResult> {
@@ -284,6 +283,11 @@ export class ImportService {
       }
     }
   }
+}
+
+export function isImportRetryable(job: JobRecord | null, work: Work | null): boolean {
+  return Boolean(job && work && job.status === 'failed' && job.errorCode !== 'IMPORT_DUPLICATE' &&
+    job.errorCode !== 'SOURCE_INPUT_REQUIRED' && !work.sourceKey.startsWith('pending:'))
 }
 
 function errorCode(error: unknown): string {

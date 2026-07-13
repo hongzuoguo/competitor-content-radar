@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ on: vi.fn(), removeListener: vi.fn(), exposedApi: undefined as
-  { onWorkStateChanged(listener: (workId: string) => void): () => void } | undefined }))
+const mocks = vi.hoisted(() => ({ on: vi.fn(), removeListener: vi.fn(), invoke: vi.fn(), exposedApi: undefined as
+  { onWorkStateChanged(listener: (workId: string) => void): () => void
+    startImport(request: unknown): Promise<unknown> } | undefined }))
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: vi.fn((_name: string, api: NonNullable<typeof mocks.exposedApi>) => { mocks.exposedApi = api }) },
-  ipcRenderer: { invoke: vi.fn(), on: mocks.on, removeListener: mocks.removeListener }
+  ipcRenderer: { invoke: mocks.invoke, on: mocks.on, removeListener: mocks.removeListener }
 }))
 
 import '../../src/preload/index'
@@ -21,5 +22,20 @@ describe('preload work events', () => {
     unsubscribe()
 
     expect(mocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.workStateChanged, handler)
+  })
+
+  it('reconstructs stable import error metadata from the serialized envelope', async () => {
+    mocks.invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_CREATOR', message: 'Creator missing', action: 'Choose another creator', retryable: false }
+    })
+
+    const error = await mocks.exposedApi!.startImport({ source: { type: 'local', path: 'clip.mp4' } })
+      .catch((value: unknown) => value)
+
+    expect(error).toMatchObject({
+      name: 'ImportError', code: 'INVALID_CREATOR', message: 'Creator missing',
+      action: 'Choose another creator', retryable: false
+    })
   })
 })

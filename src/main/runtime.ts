@@ -6,7 +6,7 @@ import { normalizeCreatorUrl, selectBaselineWorks, selectRecentWorks } from '../
 import { AppRepositories, type AnalysisRecord } from '../services/database/repositories'
 import type { AppDatabase } from '../services/database/database'
 import type { CreatorView, DashboardData, PublicSettings, WorkListItem } from '../shared/ipc-contract'
-import type { ImportRequest, ImportService, ImportStartResult } from '../services/import/import-service'
+import { isImportRetryable, type ImportRequest, type ImportService, type ImportStartResult } from '../services/import/import-service'
 
 export interface ProcessedWork {
   transcript: string
@@ -70,20 +70,35 @@ export class DesktopRuntime {
   async listWorks(): Promise<WorkListItem[]> {
     const creators = this.repositories.creators.list()
     const allWorks = this.repositories.works.listAll()
+    const creatorNames = new Map(creators.map((creator) => [creator.id, creator.name]))
+    const jobs = new Map(this.repositories.jobs.list().map((job) => [job.workId, job]))
+    const analyses = new Map(this.repositories.analyses.list().map((analysis) => [analysis.workId, analysis]))
+    const artifacts = new Map(this.repositories.artifacts.list().map((artifact) => [artifact.workId, artifact]))
+    const worksByCreator = new Map<string | null, Work[]>()
+    for (const work of allWorks) {
+      const group = worksByCreator.get(work.creatorId) ?? []
+      group.push(work)
+      worksByCreator.set(work.creatorId, group)
+    }
+    const baselines = new Map<string, number[]>()
+    for (const works of worksByCreator.values()) {
+      const engagement = works.map((work) => calculateEngagement(work.metrics))
+      for (let index = 0; index < works.length; index += 1) {
+        baselines.set(works[index].id, index < 30
+          ? [...engagement.slice(0, index), ...engagement.slice(index + 1, 31)]
+          : engagement.slice(0, 30))
+      }
+    }
     return allWorks.map((work) => {
-      const job = this.repositories.jobs.get(work.id)
-      const analysis = this.repositories.analyses.get(work.id)
-      const artifact = this.repositories.artifacts.get(work.id)
+      const job = jobs.get(work.id) ?? null
+      const analysis = analyses.get(work.id)
+      const artifact = artifacts.get(work.id)
       const scoreValue = analysis?.result.referenceValueScore
       const referenceValueScore = typeof scoreValue === 'number' ? scoreValue : null
-      const baseline = allWorks
-        .filter((candidate) => candidate.creatorId === work.creatorId && candidate.id !== work.id)
-        .slice(0, 30)
-        .map((candidate) => calculateEngagement(candidate.metrics))
-      const evaluation = evaluateHighlight(work.metrics, baseline, referenceValueScore)
+      const evaluation = evaluateHighlight(work.metrics, baselines.get(work.id) ?? [], referenceValueScore)
       return {
         id: work.id,
-        creatorName: creators.find((creator) => creator.id === work.creatorId)?.name ?? '未分类作品',
+        creatorName: (work.creatorId ? creatorNames.get(work.creatorId) : undefined) ?? '未分类作品',
         title: work.title,
         sourceType: work.sourceType,
         publishedAt: work.publishedAt,
@@ -91,7 +106,7 @@ export class DesktopRuntime {
         stage: job?.stage ?? 'completed',
         errorCode: job?.errorCode ?? null,
         errorMessage: job?.errorMessage ?? null,
-        retryable: this.imports?.isRetryable(work.id) ?? false,
+        retryable: isImportRetryable(job, work),
         ...(artifact?.existingWorkId ? { existingWorkId: artifact.existingWorkId } : {}),
         likes: work.metrics.likes,
         relativeViralIndex: evaluation.relativeViralIndex,
