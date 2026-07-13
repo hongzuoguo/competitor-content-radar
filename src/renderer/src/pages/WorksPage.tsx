@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { CreatorView, ImportStartResult } from '../../../shared/ipc-contract'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
-import { ImportWorkDialog } from '../features/works/ImportWorkDialog'
+import { ImportWorkDialog, type CreatorLoadState } from '../features/works/ImportWorkDialog'
 import './workspace-pages.css'
 
 const WORKS = [
@@ -17,6 +17,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   const [query, setQuery] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [creators, setCreators] = useState<CreatorView[]>([])
+  const [creatorLoadState, setCreatorLoadState] = useState<CreatorLoadState>('loading')
   const [message, setMessage] = useState('')
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const works = useMemo(() => WORKS.filter((work) => (filter === 'all' || work.reasons.includes(filter)) && `${work.creator}${work.title}`.includes(query)), [filter, query])
@@ -24,7 +25,22 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
   function openImport(): void {
     setImportOpen(true)
     setMessage('')
-    if (window.desktopApi) void window.desktopApi.listCreators().then(setCreators).catch(() => setCreators([]))
+    void loadCreators()
+  }
+
+  async function loadCreators(): Promise<void> {
+    setCreatorLoadState('loading')
+    setCreators([])
+    if (!window.desktopApi) {
+      setCreatorLoadState('failed')
+      return
+    }
+    try {
+      setCreators(await window.desktopApi.listCreators())
+      setCreatorLoadState('ready')
+    } catch {
+      setCreatorLoadState('failed')
+    }
   }
 
   function closeImport(): void {
@@ -52,7 +68,7 @@ export function WorksPage({ onImportAccepted }: { onImportAccepted?(result: Impo
         <label className="search-field"><Search size={15} aria-hidden="true" /><span className="visually-hidden">搜索作品</span><input aria-label="搜索作品" onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或博主" value={query} /></label>
       </div>
       <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断</th><th /></tr></thead><tbody>{works.map((work) => <tr key={work.id}><td><span className="work-title"><strong>{work.title}</strong><small>{work.creator}</small></span></td><td>{work.published}</td><td>{work.likes.toLocaleString('zh-CN')}</td><td>{work.viral}</td><td><strong>{work.score}</strong></td><td><div className="inline-badges">{work.reasons.includes('high-likes') ? <StatusBadge tone="success">高点赞</StatusBadge> : null}{work.reasons.includes('viral') ? <StatusBadge tone="warning">相对爆款</StatusBadge> : null}</div></td><td><Button aria-label={`打开${work.title}`} icon={<ExternalLink size={15} />} variant="ghost" /></td></tr>)}</tbody></table></div>
-      {importOpen ? <ImportWorkDialog creators={creators} onAccepted={acceptImport} onClose={closeImport} /> : null}
+      {importOpen ? <ImportWorkDialog creatorLoadState={creatorLoadState} creators={creators} onAccepted={acceptImport} onClose={closeImport} onRetryCreators={() => void loadCreators()} /> : null}
     </div>
   )
 }

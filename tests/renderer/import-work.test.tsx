@@ -10,6 +10,10 @@ const desktopApi = {
   startImport: vi.fn()
 } as unknown as DesktopApi
 
+async function waitForCreators(): Promise<void> {
+  await waitFor(() => expect(screen.getByLabelText('关联博主（可选）')).toBeEnabled())
+}
+
 describe('work import dialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -66,6 +70,7 @@ describe('work import dialog', () => {
     render(<WorksPage />)
     fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
     fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
+    await waitForCreators()
     fireEvent.change(screen.getByLabelText('抖音单条视频链接'), { target: { value: 'https://www.douyin.com/user/test' } })
     fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
     expect(await screen.findByText('请输入抖音单条视频链接，不支持博主主页。')).toBeInTheDocument()
@@ -83,6 +88,7 @@ describe('work import dialog', () => {
     render(<WorksPage />)
     fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
     fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
+    await waitForCreators()
     fireEvent.change(screen.getByLabelText('抖音单条视频链接'), { target: { value: url } })
     fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/抖音单条视频链接|有效的抖音链接/)
@@ -93,6 +99,7 @@ describe('work import dialog', () => {
     render(<WorksPage />)
     fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
     fireEvent.click(screen.getByRole('button', { name: '抖音链接' }))
+    await waitForCreators()
     const input = screen.getByLabelText('抖音单条视频链接')
     fireEvent.change(input, { target: { value: 'https://v.douyin.com/AbC12/' } })
     fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
@@ -118,7 +125,41 @@ describe('work import dialog', () => {
     fireEvent.drop(dropZone, { dataTransfer: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('暂不支持这个视频格式')
-    expect(dropZone).toHaveAttribute('aria-describedby', alert.id)
+    expect(screen.getByRole('button', { name: '选择视频' })).toHaveAttribute('aria-describedby', alert.id)
+  })
+
+  it('shows an error when Electron cannot resolve a dropped file path', async () => {
+    desktopApi.getPathForFile = vi.fn().mockReturnValue('')
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    fireEvent.drop(await screen.findByTestId('local-video-drop-zone'), {
+      dataTransfer: { files: [new File(['video'], '样片.mp4', { type: 'video/mp4' })] }
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法读取拖放的视频，请改用“选择视频”。')
+  })
+
+  it('blocks submit while the creator list is loading', async () => {
+    desktopApi.listCreators = vi.fn().mockReturnValue(new Promise(() => undefined))
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    expect(await screen.findByText('正在加载博主列表…')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '选择视频' }))
+    expect(await screen.findByRole('button', { name: '开始分析' })).toBeDisabled()
+  })
+
+  it('shows creator loading failure, retries, or requires explicit unclassified confirmation', async () => {
+    desktopApi.listCreators = vi.fn()
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce([])
+    render(<WorksPage />)
+    fireEvent.click(screen.getByRole('button', { name: '导入作品' }))
+    expect(await screen.findByText('博主列表加载失败。你可以重试，或确认以未分类作品继续。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '选择视频' }))
+    expect(screen.getByRole('button', { name: '开始分析' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox', { name: '确认以未分类作品继续' }))
+    expect(screen.getByRole('button', { name: '开始分析' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '重试加载博主' }))
+    await waitFor(() => expect(desktopApi.listCreators).toHaveBeenCalledTimes(2))
   })
 
   it('prevents duplicate submission while an import is starting', async () => {

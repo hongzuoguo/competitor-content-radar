@@ -4,6 +4,7 @@ import type { CreatorView, ImportStartResult } from '../../../../shared/ipc-cont
 import { Button } from '../../components/Button'
 
 type SourceType = 'local' | 'douyin_url'
+export type CreatorLoadState = 'loading' | 'ready' | 'failed'
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm'])
 
 interface ImportErrorLike {
@@ -12,12 +13,16 @@ interface ImportErrorLike {
 
 export function ImportWorkDialog({
   creators,
+  creatorLoadState,
   onAccepted,
-  onClose
+  onClose,
+  onRetryCreators
 }: {
   creators: CreatorView[]
+  creatorLoadState: CreatorLoadState
   onAccepted(result: ImportStartResult): void
   onClose(): void
+  onRetryCreators(): void
 }): React.JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const localTabRef = useRef<HTMLButtonElement>(null)
@@ -34,6 +39,7 @@ export function ImportWorkDialog({
   const [fieldError, setFieldError] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [confirmedUnclassified, setConfirmedUnclassified] = useState(false)
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -41,6 +47,10 @@ export function ImportWorkDialog({
     if (typeof dialog.showModal === 'function') dialog.showModal()
     else dialog.setAttribute('open', '')
   }, [])
+
+  useEffect(() => {
+    setConfirmedUnclassified(false)
+  }, [creatorLoadState])
 
   function selectSource(next: SourceType): void {
     setSourceType(next)
@@ -65,6 +75,7 @@ export function ImportWorkDialog({
     try {
       const path = window.desktopApi.getPathForFile(file)
       if (path) setLocalVideoPath(path)
+      else throw new Error('empty file path')
     } catch {
       setLocalPath('')
       setFieldError('无法读取拖放的视频，请改用“选择视频”。')
@@ -134,7 +145,6 @@ export function ImportWorkDialog({
           <div className="form-field">
             <span className="import-field-label" id={localLabelId}>视频文件</span>
             <div
-              aria-describedby={fieldError ? localErrorId : localHelpId}
               aria-labelledby={localLabelId}
               className="file-picker"
               data-testid="local-video-drop-zone"
@@ -143,7 +153,7 @@ export function ImportWorkDialog({
             >
               <FileVideo size={24} aria-hidden="true" />
               {fileName ? <div><strong>{fileName}</strong><small id={localHelpId} title={localPath}>{localPath}</small></div> : <div><strong>选择或拖入一个视频文件</strong><small id={localHelpId}>支持 MP4、MOV、MKV 和 WebM</small></div>}
-              <Button icon={<Upload size={16} />} onClick={() => void pickLocalVideo()} variant="secondary">{fileName ? '重新选择' : '选择视频'}</Button>
+              <Button aria-describedby={fieldError ? localErrorId : localHelpId} icon={<Upload size={16} />} onClick={() => void pickLocalVideo()} variant="secondary">{fileName ? '重新选择' : '选择视频'}</Button>
             </div>
             {fieldError ? <span className="form-error" id={localErrorId} role="alert">{fieldError}</span> : null}
           </div>
@@ -165,11 +175,19 @@ export function ImportWorkDialog({
 
         <div className="form-field">
           <label htmlFor="import-creator">关联博主（可选）</label>
-          <select aria-describedby={creatorHelpId} id="import-creator" onChange={(event) => setCreatorId(event.target.value)} value={creatorId}>
+          <select aria-describedby={creatorHelpId} disabled={creatorLoadState !== 'ready'} id="import-creator" onChange={(event) => setCreatorId(event.target.value)} value={creatorId}>
             <option value="">未分类作品</option>
             {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name}</option>)}
           </select>
-          <span className="form-help" id={creatorHelpId}>不选择博主也可以继续分析。</span>
+          {creatorLoadState === 'loading' ? <span className="form-help" id={creatorHelpId} role="status">正在加载博主列表…</span> : null}
+          {creatorLoadState === 'ready' ? <span className="form-help" id={creatorHelpId}>不选择博主也可以继续分析。</span> : null}
+          {creatorLoadState === 'failed' ? (
+            <div className="creator-load-error" id={creatorHelpId} role="alert">
+              <span>博主列表加载失败。你可以重试，或确认以未分类作品继续。</span>
+              <Button onClick={onRetryCreators} variant="secondary">重试加载博主</Button>
+              <label><input checked={confirmedUnclassified} onChange={(event) => setConfirmedUnclassified(event.target.checked)} type="checkbox" />确认以未分类作品继续</label>
+            </div>
+          ) : null}
         </div>
 
         {submitError ? (
@@ -181,7 +199,7 @@ export function ImportWorkDialog({
 
       <div className="import-dialog__actions">
         <Button disabled={submitting} onClick={onClose} variant="secondary">取消</Button>
-        <Button disabled={submitting} onClick={() => void submit()}>{submitting ? '正在启动…' : '开始分析'}</Button>
+        <Button disabled={submitting || creatorLoadState === 'loading' || (creatorLoadState === 'failed' && !confirmedUnclassified)} onClick={() => void submit()}>{submitting ? '正在启动…' : '开始分析'}</Button>
       </div>
     </dialog>
   )
