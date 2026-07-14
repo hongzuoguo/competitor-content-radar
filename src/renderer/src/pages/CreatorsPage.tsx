@@ -41,7 +41,7 @@ export function CreatorsPage({ initialCreators }: { initialCreators?: CreatorRow
     try {
       const creator = await window.desktopApi.addCreator(profileUrl)
       setCreators((current) => [...current, creator])
-      setMessage('博主已添加，将在下次运行时采集。')
+      setMessage('博主已添加，正在后台进行首次采集。')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '添加失败，请检查主页地址。')
     }

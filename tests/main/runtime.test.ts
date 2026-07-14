@@ -36,6 +36,72 @@ describe('desktop runtime assembly', () => {
     ])
   })
 
+  it('returns the saved creator before the first background capture completes', async () => {
+    let finishDiscovery!: (works: Work[]) => void
+    const discovery = new Promise<Work[]>((resolve) => { finishDiscovery = resolve })
+    const discover = vi.fn(() => discovery)
+    const runtime = new DesktopRuntime(database, {
+      discover, processWork: vi.fn(), login: vi.fn()
+    })
+
+    const creator = await runtime.addCreator('https://www.douyin.com/user/first-capture')
+
+    expect(new AppRepositories(database.connection).creators.list().find((item) => item.id === creator.id)).toMatchObject({
+      profileUrl: 'https://www.douyin.com/user/first-capture'
+    })
+    expect(discover).not.toHaveBeenCalled()
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(discover).toHaveBeenCalledWith(creator.id, creator.profileUrl)
+
+    finishDiscovery([])
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+  })
+
+  it('keeps a newly added creator when its first capture is deferred by an active run', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.creators.create({
+      id: 'existing', platform: 'douyin', name: 'Existing', enabled: true,
+      profileUrl: 'https://www.douyin.com/user/existing', createdAt: new Date().toISOString()
+    })
+    let finishDiscovery!: (works: Work[]) => void
+    const discovery = new Promise<Work[]>((resolve) => { finishDiscovery = resolve })
+    const discover = vi.fn(() => discovery)
+    const report = vi.fn()
+    const runtime = new DesktopRuntime(database, {
+      discover, processWork: vi.fn(), login: vi.fn(), report
+    })
+    await runtime.runNow('daily')
+
+    const creator = await runtime.addCreator('https://www.douyin.com/user/deferred')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(repositories.creators.list().find((item) => item.id === creator.id)).toMatchObject({ enabled: true })
+    expect(discover).toHaveBeenCalledTimes(1)
+    expect(report).toHaveBeenCalledWith('info', 'First capture deferred', expect.objectContaining({
+      creatorId: creator.id
+    }))
+
+    finishDiscovery([])
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+  })
+
+  it('records a first-capture startup failure without rejecting creator creation', async () => {
+    const report = vi.fn()
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn(), report
+    })
+    vi.spyOn(runtime, 'runNow').mockRejectedValueOnce(new Error('startup failed'))
+
+    const creator = await runtime.addCreator('https://www.douyin.com/user/startup-failure')
+    expect(creator.profileUrl).toBe('https://www.douyin.com/user/startup-failure')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(report).toHaveBeenCalledWith('error', 'First capture start failed', {
+      code: 'FIRST_CAPTURE_START_FAILED', creatorId: creator.id, error: expect.any(Error)
+    })
+  })
+
   it('discovers, stores and processes recent works when run now is accepted', async () => {
     const work: Work = {
       id: 'douyin:7658', creatorId: '', platformWorkId: '7658', title: '测试作品',

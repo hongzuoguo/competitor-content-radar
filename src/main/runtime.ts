@@ -41,6 +41,7 @@ export class DesktopRuntime {
   private readonly idleListeners = new Set<() => void>()
   private readonly workStateListeners = new Set<(workId: string) => void>()
   private unsubscribeImportEvents: (() => void) | null = null
+  private firstCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private lastRunAt: string | null = null
   private runState: DashboardData['run'] = {
     status: 'idle',
@@ -197,7 +198,29 @@ export class DesktopRuntime {
       createdAt: new Date().toISOString()
     }
     this.repositories.creators.create(creator)
+    this.scheduleFirstCapture(creator.id)
     return { ...creator, works: 0, lastRun: '尚未采集', status: 'waiting' }
+  }
+
+  private scheduleFirstCapture(creatorId: string): void {
+    if (this.firstCaptureTimer) clearTimeout(this.firstCaptureTimer)
+    const timer = setTimeout(() => {
+      if (this.firstCaptureTimer !== timer) return
+      this.firstCaptureTimer = null
+      if (!this.database.connection.open) return
+      void this.runNow('manual').then((result) => {
+        if (!result.accepted) {
+          this.ports.report?.('info', 'First capture deferred', {
+            code: 'FIRST_CAPTURE_DEFERRED', creatorId, reason: result.reason
+          })
+        }
+      }).catch((error) => {
+        this.ports.report?.('error', 'First capture start failed', {
+          code: 'FIRST_CAPTURE_START_FAILED', creatorId, error
+        })
+      })
+    }, 0)
+    this.firstCaptureTimer = timer
   }
 
   async toggleCreator(id: string, enabled: boolean): Promise<void> {
@@ -231,6 +254,10 @@ export class DesktopRuntime {
   }
 
   async runNow(kind: RunRecord['kind'] = 'manual'): Promise<{ accepted: boolean; reason?: string }> {
+    if (this.firstCaptureTimer) {
+      clearTimeout(this.firstCaptureTimer)
+      this.firstCaptureTimer = null
+    }
     if (this.running) return { accepted: false, reason: '已有任务正在运行' }
     const settings = await this.getSettings()
     const creators = this.repositories.creators.list().filter((creator) => creator.enabled)

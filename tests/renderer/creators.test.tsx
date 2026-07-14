@@ -1,8 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CreatorsPage } from '../../src/renderer/src/pages/CreatorsPage'
 
 describe('creator management', () => {
+  afterEach(() => {
+    Object.defineProperty(window, 'desktopApi', { configurable: true, value: undefined })
+  })
+
   it('adds a valid Douyin creator URL', () => {
     render(<CreatorsPage initialCreators={[]} />)
     fireEvent.change(screen.getByLabelText('抖音博主主页'), {
@@ -21,6 +25,25 @@ describe('creator management', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '添加博主' }))
     expect(screen.getByText('等待首次采集')).toBeInTheDocument()
+  })
+
+  it('explains that the first capture starts in the background after adding', async () => {
+    const addCreator = vi.fn().mockResolvedValue({
+      id: 'creator-1', name: '测试博主', profileUrl: 'https://www.douyin.com/user/test',
+      enabled: true, works: 0, lastRun: '尚未采集', status: 'waiting'
+    })
+    Object.defineProperty(window, 'desktopApi', {
+      configurable: true,
+      value: { addCreator }
+    })
+    render(<CreatorsPage initialCreators={[]} />)
+    fireEvent.change(screen.getByLabelText('抖音博主主页'), {
+      target: { value: 'https://www.douyin.com/user/test' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '添加博主' }))
+
+    expect(await screen.findByText('博主已添加，正在后台进行首次采集。')).toBeInTheDocument()
+    expect(addCreator).toHaveBeenCalledWith('https://www.douyin.com/user/test')
   })
 
   it('blocks additions after ten creators', () => {
