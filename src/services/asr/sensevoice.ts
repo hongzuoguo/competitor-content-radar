@@ -26,12 +26,24 @@ interface SherpaModule {
   readWave(path: string): WaveObject
 }
 
+export function resolveSherpaModule(moduleValue: unknown): SherpaModule {
+  const topLevel = asSherpaModule(moduleValue)
+  if (topLevel) return topLevel
+
+  const defaultExport = isRecord(moduleValue) ? asSherpaModule(moduleValue.default) : null
+  if (defaultExport) return defaultExport
+
+  throw Object.assign(new Error('Invalid sherpa-onnx-node module exports'), {
+    code: 'SENSEVOICE_MODULE_INVALID'
+  })
+}
+
 export async function transcribeWithSenseVoice(
   wavPath: string,
   modelDirectory: string,
   threads = 2
 ): Promise<string> {
-  const sherpa = (await import('sherpa-onnx-node')) as unknown as SherpaModule
+  const sherpa = resolveSherpaModule(await import('sherpa-onnx-node'))
   const recognizer = await sherpa.OfflineRecognizer.createAsync({
     featConfig: { sampleRate: 16_000, featureDim: 80 },
     modelConfig: {
@@ -51,4 +63,16 @@ export async function transcribeWithSenseVoice(
   stream.acceptWaveform(wave)
   const result = await recognizer.decodeAsync(stream)
   return result.text.trim()
+}
+
+function asSherpaModule(value: unknown): SherpaModule | null {
+  if (!isRecord(value) || !isRecord(value.OfflineRecognizer)) return null
+  if (typeof value.OfflineRecognizer.createAsync !== 'function' || typeof value.readWave !== 'function') {
+    return null
+  }
+  return value as unknown as SherpaModule
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
