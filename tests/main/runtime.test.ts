@@ -109,6 +109,41 @@ describe('desktop runtime assembly', () => {
 
     expect(processWork).toHaveBeenCalledTimes(2)
     expect(new AppRepositories(database.connection).analyses.get('second')?.transcript).toBe('second transcript')
+    const run = (await runtime.getDashboard()).run
+    expect(run.status).toBe('partial')
+    expect(run.message).toContain('部分完成')
+    expect(run.stages.find((stage) => stage.id === 'analysis')?.status).not.toBe('completed')
+  })
+
+  it('continues after saving one work analysis fails', async () => {
+    database.connection.exec(`
+      CREATE TRIGGER fail_first_analysis
+      BEFORE INSERT ON analyses
+      WHEN NEW.work_id = 'first-save-fails'
+      BEGIN
+        SELECT RAISE(FAIL, 'analysis save failed');
+      END;
+    `)
+    const now = new Date().toISOString()
+    const discover = vi.fn(async (creatorId: string) => ['first-save-fails', 'second-save-succeeds'].map((id) => ({
+      id, creatorId, platformWorkId: id, title: id, publishedAt: now,
+      originalUrl: `https://www.douyin.com/video/${id}`, sourceType: 'douyin_monitor' as const,
+      sourceKey: `douyin:${id}`, mediaPath: null, downloadUrl: null,
+      metrics: { likes: 1, comments: 0, shares: 0, collects: 0 }
+    })))
+    const processWork = vi.fn(async () => ({
+      transcript: 'transcript', result: {}, provider: 'qwen', model: 'model',
+      promptVersion: 'v1', tokenUsage: null
+    }))
+    const runtime = new DesktopRuntime(database, { discover, processWork, login: vi.fn() })
+    await runtime.addCreator('https://www.douyin.com/user/save-isolation')
+    await runtime.saveSettings({ providerId: 'qwen', modelId: 'model' })
+
+    await runtime.runNow('daily')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(processWork).toHaveBeenCalledTimes(2)
+    expect(new AppRepositories(database.connection).analyses.get('second-save-succeeds')).not.toBeNull()
     expect((await runtime.getDashboard()).run.status).toBe('partial')
   })
 
@@ -147,6 +182,82 @@ describe('desktop runtime assembly', () => {
     expect(persisted).toMatchObject({ kind: 'daily', status: 'completed' })
     expect(persisted?.finishedAt).toEqual(expect.any(String))
     expect(runtime.latestCompletedDailyRunAt()?.toISOString()).toBe(persisted?.finishedAt)
+  })
+
+  it('restores the last completed daily run after restart', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.creators.create({
+      id: 'restart-creator', platform: 'douyin', name: 'Restart creator', enabled: true,
+      profileUrl: 'https://www.douyin.com/user/restart', createdAt: '2026-07-10T00:00:00.000Z'
+    })
+    repositories.runs.save({
+      id: 'restart-run', kind: 'daily', status: 'partial',
+      startedAt: '2026-07-11T00:00:00.000Z', finishedAt: '2026-07-11T00:10:00.000Z', summary: null
+    })
+
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn()
+    })
+
+    expect((await runtime.getDashboard()).lastRunAt).toBe('2026-07-11T00:10:00.000Z')
+    expect((await runtime.listCreators())[0]).toMatchObject({ status: 'ready' })
+    expect((await runtime.listCreators())[0].lastRun).not.toBe('尚未采集')
+  })
+
+  it('persists a fatal run failure with finishedAt', async () => {
+    database.connection.exec(`
+      CREATE TRIGGER fail_snapshot
+      BEFORE INSERT ON metric_snapshots
+      BEGIN
+        SELECT RAISE(FAIL, 'snapshot failed');
+      END;
+    `)
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(async (creatorId: string) => [{
+        id: 'fatal-work', creatorId, platformWorkId: 'fatal', title: 'Fatal',
+        publishedAt: new Date().toISOString(), originalUrl: null, downloadUrl: null,
+        sourceType: 'douyin_monitor' as const, sourceKey: 'douyin:fatal', mediaPath: null,
+        metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+      }]),
+      processWork: vi.fn(), login: vi.fn()
+    })
+    await runtime.addCreator('https://www.douyin.com/user/fatal-run')
+
+    await runtime.runNow('daily')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    const run = database.connection.prepare(
+      "SELECT status, finished_at, summary_json FROM runs WHERE kind = 'daily' ORDER BY started_at DESC LIMIT 1"
+    ).get() as { status: string; finished_at: string | null; summary_json: string | null }
+    expect(run.status).toBe('failed')
+    expect(run.finished_at).toEqual(expect.any(String))
+    expect(JSON.parse(run.summary_json ?? '{}')).toMatchObject({ error: 'RUN_FAILED' })
+  })
+
+  it('rolls back a work when its metric snapshot cannot be saved', async () => {
+    database.connection.exec(`
+      CREATE TRIGGER fail_atomic_snapshot
+      BEFORE INSERT ON metric_snapshots
+      WHEN NEW.work_id = 'atomic-work'
+      BEGIN
+        SELECT RAISE(FAIL, 'snapshot failed');
+      END;
+    `)
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(async (creatorId: string) => [{
+        id: 'atomic-work', creatorId, platformWorkId: 'atomic', title: 'Atomic',
+        publishedAt: new Date().toISOString(), originalUrl: null, downloadUrl: null,
+        sourceType: 'douyin_monitor' as const, sourceKey: 'douyin:atomic', mediaPath: null,
+        metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+      }]),
+      processWork: vi.fn(), login: vi.fn()
+    })
+    await runtime.addCreator('https://www.douyin.com/user/atomic-run')
+
+    await runtime.runNow('daily')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(new AppRepositories(database.connection).works.get('atomic-work')).toBeNull()
   })
 
   it('reports business idleness around a running collection', async () => {
@@ -275,7 +386,7 @@ describe('desktop runtime assembly', () => {
     const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() }, imports)
 
     await expect(runtime.listWorks()).resolves.toHaveLength(4)
-    expect(prepare).toHaveBeenCalledTimes(5)
+    expect(prepare).toHaveBeenCalledTimes(6)
     expect(imports.isRetryable).not.toHaveBeenCalled()
   })
 

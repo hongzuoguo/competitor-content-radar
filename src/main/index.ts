@@ -148,8 +148,8 @@ app.whenReady().then(() => {
     }
   })
   scheduler = new AppScheduler(
-    async (kind) => { await runtime.runNow(kind) },
-    async () => { await runtime.runNow('weekly') }
+    async (kind) => (await runtime.runNow(kind)).accepted,
+    async () => (await runtime.runNow('weekly')).accepted
   )
   scheduler.start(runtime.latestCompletedDailyRunAt())
 

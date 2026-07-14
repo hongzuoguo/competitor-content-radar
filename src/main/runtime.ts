@@ -52,6 +52,7 @@ export class DesktopRuntime {
     private readonly imports?: ImportService
   ) {
     this.repositories = new AppRepositories(database.connection)
+    this.lastRunAt = this.repositories.runs.latestCompletedDaily()?.finishedAt ?? null
   }
 
   startImport(request: ImportRequest): Promise<ImportStartResult> {
@@ -210,6 +211,8 @@ export class DesktopRuntime {
     let analyzedCount = 0
     let partial = false
     let waitingForModel = false
+    let discoveryFailed = false
+    let analysisFailed = false
     try {
       this.repositories.runs.save({
         id: runId, kind, status: 'running', startedAt, finishedAt: null, summary: null
@@ -221,40 +224,43 @@ export class DesktopRuntime {
           discovered = selectBaselineWorks(await this.ports.discover(creator.id, creator.profileUrl))
         } catch (error) {
           partial = true
+          discoveryFailed = true
           this.ports.report?.('error', '博主采集失败', { creatorId: creator.id, error })
           continue
         }
         this.ports.report?.('info', '博主采集完成', { creatorId: creator.id, works: discovered.length })
         for (const work of discovered) {
-          this.repositories.works.upsert(work)
-          this.repositories.snapshots.create({
-            id: randomUUID(), workId: work.id, capturedAt: new Date().toISOString(), metrics: work.metrics
+          this.repositories.transaction(() => {
+            this.repositories.works.upsert(work)
+            this.repositories.snapshots.create({
+              id: randomUUID(), workId: work.id, capturedAt: new Date().toISOString(), metrics: work.metrics
+            })
           })
           discoveredCount += 1
         }
         if (settings.providerId && settings.modelId) {
           for (const work of selectRecentWorks(discovered)) {
             if (this.repositories.analyses.get(work.id)) continue
-            let processed: ProcessedWork
             try {
-              processed = await this.ports.processWork(work, settings)
+              const processed = await this.ports.processWork(work, settings)
+              const analysis: AnalysisRecord = {
+                workId: work.id,
+                transcript: processed.transcript,
+                result: processed.result,
+                provider: processed.provider,
+                model: processed.model,
+                promptVersion: processed.promptVersion,
+                tokenUsage: processed.tokenUsage,
+                createdAt: new Date().toISOString()
+              }
+              this.repositories.analyses.save(analysis)
+              analyzedCount += 1
             } catch (error) {
               partial = true
+              analysisFailed = true
               this.ports.report?.('error', '作品处理失败', { workId: work.id, error })
               continue
             }
-            const analysis: AnalysisRecord = {
-              workId: work.id,
-              transcript: processed.transcript,
-              result: processed.result,
-              provider: processed.provider,
-              model: processed.model,
-              promptVersion: processed.promptVersion,
-              tokenUsage: processed.tokenUsage,
-              createdAt: new Date().toISOString()
-            }
-            this.repositories.analyses.save(analysis)
-            analyzedCount += 1
           }
         } else {
           partial = true
@@ -272,12 +278,17 @@ export class DesktopRuntime {
       this.runState = {
         status,
         message: waitingForModel
-          ? '已完成作品采集，等待模型配置后进行转写和 AI 拆解'
-          : feishuConnected ? '本次采集、转写、分析和同步已完成' : '本地采集、转写和分析已完成；飞书尚未连接',
+          ? discoveryFailed
+            ? '本次运行部分完成；部分博主采集失败，同时等待模型配置'
+            : '已完成作品采集，等待模型配置后进行转写和 AI 拆解'
+          : partial ? '本次运行部分完成，请查看失败项后重试'
+            : feishuConnected ? '本次采集、转写、分析和同步已完成' : '本地采集、转写和分析已完成；飞书尚未连接',
         requiresAction: partial,
         stages: EMPTY_STAGES.map((stage) => ({
           ...stage,
           status: (waitingForModel && (stage.id === 'download' || stage.id === 'transcription' || stage.id === 'analysis')) ||
+            (discoveryFailed && stage.id === 'discovery') ||
+            (analysisFailed && stage.id === 'analysis') ||
             (stage.id === 'feishu' && !feishuConnected)
             ? 'pending' as const
             : 'completed' as const
@@ -285,6 +296,15 @@ export class DesktopRuntime {
       }
     } catch (error) {
       this.ports.report?.('error', '运行失败', error)
+      const finishedAt = new Date().toISOString()
+      try {
+        this.repositories.runs.save({
+          id: runId, kind, status: 'failed', startedAt, finishedAt,
+          summary: { error: 'RUN_FAILED', discovered: discoveredCount, analyzed: analyzedCount }
+        })
+      } catch (persistenceError) {
+        this.ports.report?.('error', '运行状态保存失败', persistenceError)
+      }
       this.runState = {
         status: 'failed', message: error instanceof Error ? error.message : '任务失败', requiresAction: true,
         stages: this.runState.stages

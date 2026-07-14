@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { nextDailyRun, nextWeeklyRun, shouldRunCatchUp } from '../../src/main/scheduler'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AppScheduler, nextDailyRun, nextWeeklyRun, shouldRunCatchUp } from '../../src/main/scheduler'
+
+afterEach(() => vi.useRealTimers())
 
 describe('China-time scheduler', () => {
   it('schedules the daily run at the next 08:00 China time', () => {
@@ -22,5 +24,22 @@ describe('China-time scheduler', () => {
     expect(shouldRunCatchUp(new Date('2026-07-10T00:00:00.000Z'), now, false)).toBe(true)
     expect(shouldRunCatchUp(new Date('2026-07-10T00:00:00.000Z'), now, true)).toBe(false)
     expect(shouldRunCatchUp(new Date('2026-07-11T00:00:00.000Z'), now, false)).toBe(false)
+  })
+
+  it('retries a daily run that was rejected because another run is active', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-10T23:59:59.000Z'))
+    const runDaily = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const scheduler = new AppScheduler(runDaily, vi.fn(async () => true))
+
+    scheduler.start(new Date('2026-07-10T00:00:00.000Z'))
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(runDaily).toHaveBeenNthCalledWith(1, 'daily')
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1_000)
+    expect(runDaily).toHaveBeenNthCalledWith(2, 'catch_up')
+    scheduler.stop()
   })
 })
