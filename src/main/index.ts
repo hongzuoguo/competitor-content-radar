@@ -148,10 +148,10 @@ app.whenReady().then(() => {
     }
   })
   scheduler = new AppScheduler(
-    async () => { await runtime.runNow() },
-    async () => { await runtime.runNow() }
+    async (kind) => { await runtime.runNow(kind) },
+    async () => { await runtime.runNow('weekly') }
   )
-  scheduler.start(null)
+  scheduler.start(runtime.latestCompletedDailyRunAt())
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow()

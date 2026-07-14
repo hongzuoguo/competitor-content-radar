@@ -333,4 +333,28 @@ describe('SQLite repositories', () => {
     expect(repositories.analyses.get('work-1')?.provider).toBe('deepseek')
     expect(repositories.runs.get('run-1')?.summary).toEqual({ discovered: 1, analyzed: 1 })
   })
+
+  it('returns the latest finished daily or partial catch-up run', () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.runs.save({
+      id: 'older-daily', kind: 'daily', status: 'completed',
+      startedAt: '2026-07-10T00:00:00.000Z', finishedAt: '2026-07-10T00:10:00.000Z', summary: null
+    })
+    repositories.runs.save({
+      id: 'newer-partial', kind: 'catch_up', status: 'partial',
+      startedAt: '2026-07-11T00:00:00.000Z', finishedAt: '2026-07-11T00:10:00.000Z', summary: null
+    })
+    repositories.runs.save({
+      id: 'manual', kind: 'manual', status: 'completed',
+      startedAt: '2026-07-12T00:00:00.000Z', finishedAt: '2026-07-12T00:10:00.000Z', summary: null
+    })
+    repositories.runs.save({
+      id: 'running', kind: 'daily', status: 'running',
+      startedAt: '2026-07-13T00:00:00.000Z', finishedAt: null, summary: null
+    })
+
+    expect(repositories.runs.latestCompletedDaily()).toMatchObject({
+      id: 'newer-partial', status: 'partial', finishedAt: '2026-07-11T00:10:00.000Z'
+    })
+  })
 })

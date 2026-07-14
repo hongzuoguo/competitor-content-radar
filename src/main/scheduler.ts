@@ -22,8 +22,8 @@ function chinaTime(
 
 export function nextDailyRun(now: Date): Date {
   const parts = chinaParts(now)
-  const today = chinaTime(parts.year, parts.month, parts.day, 9)
-  return today > now ? today : chinaTime(parts.year, parts.month, parts.day + 1, 9)
+  const today = chinaTime(parts.year, parts.month, parts.day, 8)
+  return today > now ? today : chinaTime(parts.year, parts.month, parts.day + 1, 8)
 }
 
 export function nextWeeklyRun(now: Date): Date {
@@ -42,10 +42,10 @@ export function shouldRunCatchUp(
 ): boolean {
   if (catchUpAlreadyStarted) return false
   const parts = chinaParts(now)
-  const todaySchedule = chinaTime(parts.year, parts.month, parts.day, 9)
+  const todaySchedule = chinaTime(parts.year, parts.month, parts.day, 8)
   const latestExpected = now >= todaySchedule
     ? todaySchedule
-    : chinaTime(parts.year, parts.month, parts.day - 1, 9)
+    : chinaTime(parts.year, parts.month, parts.day - 1, 8)
   return !lastDailyCompletedAt || lastDailyCompletedAt < latestExpected
 }
 

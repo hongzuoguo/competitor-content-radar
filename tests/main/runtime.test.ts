@@ -62,6 +62,93 @@ describe('desktop runtime assembly', () => {
     expect(dashboard.highlights).toHaveLength(1)
   })
 
+  it('stores discovered works when no AI provider is configured', async () => {
+    const discover = vi.fn(async (creatorId: string) => [{
+      id: 'discovery-only', creatorId, platformWorkId: '1', title: 'Discovery only',
+      publishedAt: new Date().toISOString(), originalUrl: 'https://www.douyin.com/video/1',
+      sourceType: 'douyin_monitor' as const, sourceKey: 'douyin:1', mediaPath: null, downloadUrl: null,
+      metrics: { likes: 1, comments: 2, shares: 3, collects: 4 }
+    }])
+    const processWork = vi.fn()
+    const runtime = new DesktopRuntime(database, { discover, processWork, login: vi.fn() })
+    await runtime.addCreator('https://www.douyin.com/user/discovery-only')
+
+    expect(await runtime.runNow('daily')).toEqual({ accepted: true })
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(await runtime.listWorks()).toEqual([
+      expect.objectContaining({ id: 'discovery-only', likes: 1 })
+    ])
+    expect(processWork).not.toHaveBeenCalled()
+    expect((await runtime.getDashboard()).run).toMatchObject({
+      status: 'partial', requiresAction: true
+    })
+    expect((await runtime.getDashboard()).run.message).toContain('等待模型')
+  })
+
+  it('continues after one work analysis fails', async () => {
+    const now = new Date().toISOString()
+    const discover = vi.fn(async (creatorId: string) => ['first', 'second'].map((id) => ({
+      id, creatorId, platformWorkId: id, title: id, publishedAt: now,
+      originalUrl: `https://www.douyin.com/video/${id}`, sourceType: 'douyin_monitor' as const,
+      sourceKey: `douyin:${id}`, mediaPath: null, downloadUrl: null,
+      metrics: { likes: 1, comments: 0, shares: 0, collects: 0 }
+    })))
+    const processWork = vi.fn()
+      .mockRejectedValueOnce(new Error('analysis failed'))
+      .mockResolvedValueOnce({
+        transcript: 'second transcript', result: {}, provider: 'qwen', model: 'model',
+        promptVersion: 'v1', tokenUsage: null
+      })
+    const runtime = new DesktopRuntime(database, { discover, processWork, login: vi.fn() })
+    await runtime.addCreator('https://www.douyin.com/user/work-isolation')
+    await runtime.saveSettings({ providerId: 'qwen', modelId: 'model' })
+
+    await runtime.runNow('daily')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(processWork).toHaveBeenCalledTimes(2)
+    expect(new AppRepositories(database.connection).analyses.get('second')?.transcript).toBe('second transcript')
+    expect((await runtime.getDashboard()).run.status).toBe('partial')
+  })
+
+  it('continues after one creator discovery fails', async () => {
+    const discover = vi.fn()
+      .mockRejectedValueOnce(new Error('creator failed'))
+      .mockImplementationOnce(async (creatorId: string) => [{
+        id: 'survivor', creatorId, platformWorkId: '2', title: 'Survivor',
+        publishedAt: new Date().toISOString(), originalUrl: 'https://www.douyin.com/video/2',
+        sourceType: 'douyin_monitor' as const, sourceKey: 'douyin:2', mediaPath: null, downloadUrl: null,
+        metrics: { likes: 2, comments: 0, shares: 0, collects: 0 }
+      }])
+    const runtime = new DesktopRuntime(database, { discover, processWork: vi.fn(), login: vi.fn() })
+    await runtime.addCreator('https://www.douyin.com/user/failing')
+    await runtime.addCreator('https://www.douyin.com/user/surviving')
+
+    await runtime.runNow('daily')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(discover).toHaveBeenCalledTimes(2)
+    expect(await runtime.listWorks()).toEqual([expect.objectContaining({ id: 'survivor' })])
+    expect((await runtime.getDashboard()).run.status).toBe('partial')
+  })
+
+  it('persists the completed daily run used by startup catch-up', async () => {
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(async () => []), processWork: vi.fn(), login: vi.fn()
+    })
+    await runtime.addCreator('https://www.douyin.com/user/persisted-run')
+    await runtime.saveSettings({ providerId: 'qwen', modelId: 'model' })
+
+    await runtime.runNow('daily')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    const persisted = new AppRepositories(database.connection).runs.latestCompletedDaily()
+    expect(persisted).toMatchObject({ kind: 'daily', status: 'completed' })
+    expect(persisted?.finishedAt).toEqual(expect.any(String))
+    expect(runtime.latestCompletedDailyRunAt()?.toISOString()).toBe(persisted?.finishedAt)
+  })
+
   it('reports business idleness around a running collection', async () => {
     let finishDiscovery!: (works: Work[]) => void
     const discovery = new Promise<Work[]>((resolve) => { finishDiscovery = resolve })
@@ -84,7 +171,7 @@ describe('desktop runtime assembly', () => {
     expect(becameIdle).toHaveBeenCalledTimes(1)
   })
 
-  it('reports the stage and failure of a background run', async () => {
+  it('reports an isolated creator failure as a partial background run', async () => {
     const report = vi.fn()
     const runtime = new DesktopRuntime(database, {
       discover: vi.fn().mockRejectedValue(new Error('采集失败')),
@@ -94,8 +181,12 @@ describe('desktop runtime assembly', () => {
     await runtime.saveSettings({ providerId: 'deepseek', modelId: 'deepseek-chat' })
 
     await runtime.runNow()
-    await vi.waitFor(() => expect(report).toHaveBeenCalledWith('error', '运行失败', expect.any(Error)))
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+    expect(report).toHaveBeenCalledWith('error', '博主采集失败', expect.objectContaining({
+      creatorId: expect.any(String), error: expect.any(Error)
+    }))
     expect(report).toHaveBeenCalledWith('info', '开始采集博主', expect.objectContaining({ profileUrl: expect.any(String) }))
+    expect((await runtime.getDashboard()).run.status).toBe('partial')
   })
 
   it('delegates import start and retry to the assembled import service', async () => {

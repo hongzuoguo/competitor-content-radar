@@ -3,7 +3,7 @@ import type { Work } from '../core/domain'
 import { calculateEngagement, evaluateHighlight } from '../core/highlight-rules'
 import { nextDailyRun } from './scheduler'
 import { normalizeCreatorUrl, selectBaselineWorks, selectRecentWorks } from '../services/douyin/normalizers'
-import { AppRepositories, type AnalysisRecord } from '../services/database/repositories'
+import { AppRepositories, type AnalysisRecord, type RunRecord } from '../services/database/repositories'
 import type { AppDatabase } from '../services/database/database'
 import type { CreatorView, DashboardData, PublicSettings, WorkListItem } from '../shared/ipc-contract'
 import { isImportRetryable, type ImportRequest, type ImportService, type ImportStartResult } from '../services/import/import-service'
@@ -165,7 +165,7 @@ export class DesktopRuntime {
 
   async getSettings(): Promise<PublicSettings> {
     return this.repositories.settings.get<PublicSettings>('app.publicSettings') ?? {
-      dailyTime: '09:00', weeklyTime: '09:30', absoluteLikes: 10_000,
+      dailyTime: '08:00', weeklyTime: '09:30', absoluteLikes: 10_000,
       relativeViralIndex: 150, referenceValueScore: 80, mediaRetentionDays: 7
     }
   }
@@ -185,60 +185,103 @@ export class DesktopRuntime {
     await this.saveSettings({ douyinLoggedIn: true })
   }
 
-  async runNow(): Promise<{ accepted: boolean; reason?: string }> {
+  async runNow(kind: RunRecord['kind'] = 'manual'): Promise<{ accepted: boolean; reason?: string }> {
     if (this.running) return { accepted: false, reason: '已有任务正在运行' }
     const settings = await this.getSettings()
     const creators = this.repositories.creators.list().filter((creator) => creator.enabled)
     if (creators.length === 0) return { accepted: false, reason: '请先添加至少一位博主' }
-    if (!settings.providerId || !settings.modelId) return { accepted: false, reason: '请先完成 AI 模型设置' }
-
     this.running = true
     this.runState = {
       status: 'running', message: '正在采集公开作品，暂时无需操作', requiresAction: false,
       stages: EMPTY_STAGES.map((stage, index) => ({ ...stage, status: index === 0 ? 'running' as const : 'pending' as const }))
     }
-    void this.executeRun(creators, settings)
+    void this.executeRun(creators, settings, kind)
     return { accepted: true }
   }
 
   private async executeRun(
     creators: ReturnType<AppRepositories['creators']['list']>,
-    settings: PublicSettings
+    settings: PublicSettings,
+    kind: RunRecord['kind']
   ): Promise<void> {
+    const runId = randomUUID()
+    const startedAt = new Date().toISOString()
+    let discoveredCount = 0
+    let analyzedCount = 0
+    let partial = false
+    let waitingForModel = false
     try {
+      this.repositories.runs.save({
+        id: runId, kind, status: 'running', startedAt, finishedAt: null, summary: null
+      })
       for (const creator of creators) {
         this.ports.report?.('info', '开始采集博主', { creatorId: creator.id, profileUrl: creator.profileUrl })
-        const discovered = selectBaselineWorks(await this.ports.discover(creator.id, creator.profileUrl))
+        let discovered: Work[]
+        try {
+          discovered = selectBaselineWorks(await this.ports.discover(creator.id, creator.profileUrl))
+        } catch (error) {
+          partial = true
+          this.ports.report?.('error', '博主采集失败', { creatorId: creator.id, error })
+          continue
+        }
         this.ports.report?.('info', '博主采集完成', { creatorId: creator.id, works: discovered.length })
         for (const work of discovered) {
           this.repositories.works.upsert(work)
           this.repositories.snapshots.create({
             id: randomUUID(), workId: work.id, capturedAt: new Date().toISOString(), metrics: work.metrics
           })
+          discoveredCount += 1
         }
-        for (const work of selectRecentWorks(discovered)) {
-          if (this.repositories.analyses.get(work.id)) continue
-          const processed = await this.ports.processWork(work, settings)
-          const analysis: AnalysisRecord = {
-            workId: work.id,
-            transcript: processed.transcript,
-            result: processed.result,
-            provider: processed.provider,
-            model: processed.model,
-            promptVersion: processed.promptVersion,
-            tokenUsage: processed.tokenUsage,
-            createdAt: new Date().toISOString()
+        if (settings.providerId && settings.modelId) {
+          for (const work of selectRecentWorks(discovered)) {
+            if (this.repositories.analyses.get(work.id)) continue
+            let processed: ProcessedWork
+            try {
+              processed = await this.ports.processWork(work, settings)
+            } catch (error) {
+              partial = true
+              this.ports.report?.('error', '作品处理失败', { workId: work.id, error })
+              continue
+            }
+            const analysis: AnalysisRecord = {
+              workId: work.id,
+              transcript: processed.transcript,
+              result: processed.result,
+              provider: processed.provider,
+              model: processed.model,
+              promptVersion: processed.promptVersion,
+              tokenUsage: processed.tokenUsage,
+              createdAt: new Date().toISOString()
+            }
+            this.repositories.analyses.save(analysis)
+            analyzedCount += 1
           }
-          this.repositories.analyses.save(analysis)
+        } else {
+          partial = true
+          waitingForModel = true
         }
       }
-      this.lastRunAt = new Date().toISOString()
+      const finishedAt = new Date().toISOString()
+      this.lastRunAt = finishedAt
+      const status = partial ? 'partial' as const : 'completed' as const
+      this.repositories.runs.save({
+        id: runId, kind, status, startedAt, finishedAt,
+        summary: { discovered: discoveredCount, analyzed: analyzedCount, waitingForModel }
+      })
       const feishuConnected = settings.feishuConnected === true
       this.runState = {
-        status: 'completed',
-        message: feishuConnected ? '本次采集、转写、分析和同步已完成' : '本地采集、转写和分析已完成；飞书尚未连接',
-        requiresAction: false,
-        stages: EMPTY_STAGES.map((stage) => ({ ...stage, status: stage.id === 'feishu' && !feishuConnected ? 'pending' as const : 'completed' as const }))
+        status,
+        message: waitingForModel
+          ? '已完成作品采集，等待模型配置后进行转写和 AI 拆解'
+          : feishuConnected ? '本次采集、转写、分析和同步已完成' : '本地采集、转写和分析已完成；飞书尚未连接',
+        requiresAction: partial,
+        stages: EMPTY_STAGES.map((stage) => ({
+          ...stage,
+          status: (waitingForModel && (stage.id === 'download' || stage.id === 'transcription' || stage.id === 'analysis')) ||
+            (stage.id === 'feishu' && !feishuConnected)
+            ? 'pending' as const
+            : 'completed' as const
+        }))
       }
     } catch (error) {
       this.ports.report?.('error', '运行失败', error)
@@ -250,6 +293,11 @@ export class DesktopRuntime {
       this.running = false
       for (const listener of this.idleListeners) listener()
     }
+  }
+
+  latestCompletedDailyRunAt(): Date | null {
+    const finishedAt = this.repositories.runs.latestCompletedDaily()?.finishedAt
+    return finishedAt ? new Date(finishedAt) : null
   }
 
   isBusinessIdle(): boolean {
