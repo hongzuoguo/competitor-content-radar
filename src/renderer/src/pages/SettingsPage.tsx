@@ -6,6 +6,7 @@ import { Button } from '../components/Button'
 import { AiProviderSettings } from '../features/settings/AiProviderSettings'
 import { ConnectionSettings } from '../features/settings/ConnectionSettings'
 import { RuleSettings } from '../features/settings/RuleSettings'
+import { ContentSourceSettings } from '../features/settings/ContentSourceSettings'
 import './workspace-pages.css'
 
 export function SettingsPage(): React.JSX.Element {
@@ -23,6 +24,10 @@ export function SettingsPage(): React.JSX.Element {
     setMessage('正在保存…')
     try {
       const saved = await window.desktopApi?.saveSettings({
+        contentSource: String(data.get('contentSource') ?? 'douyin_browser') as PublicSettings['contentSource'],
+        getBijiTopicId: String(data.get('getBijiTopicId') ?? ''),
+        getBijiClientId: String(data.get('getBijiClientId') ?? ''),
+        getBijiApiKey: String(data.get('getBijiApiKey') ?? ''),
         providerId: String(data.get('providerId') ?? 'qwen'),
         modelId: String(data.get('modelId') ?? ''),
         apiKey: String(data.get('apiKey') ?? ''),
@@ -44,7 +49,7 @@ export function SettingsPage(): React.JSX.Element {
   if (!settings) return <div className="page overview-skeleton" aria-label="正在加载设置"><span /><span /></div>
 
   return (
-    <form className="page settings-page" key={`${settings.providerId}-${settings.modelId}`} onSubmit={(event) => void save(event)}>
+    <form className="page settings-page" key={`${settings.contentSource}-${settings.providerId}-${settings.modelId}`} onSubmit={(event) => void save(event)}>
       <header className="page-heading">
         <div><h1>设置</h1><p>连接账号、选择分析模型并调整自动运行规则。</p></div>
         <div><Button icon={<Save size={16} />} type="submit">保存设置</Button><span aria-live="polite" className="form-help">{message}</span></div>
@@ -55,6 +60,7 @@ export function SettingsPage(): React.JSX.Element {
           <a href="#schedule">自动运行</a><a href="#rules">判断标准</a><a href="#storage">文件清理</a>
         </nav>
         <div className="settings-content">
+          <div id="source"><ContentSourceSettings apiKeyConfigured={settings.getBijiApiKeyConfigured} clientId={settings.getBijiClientId} contentSource={settings.contentSource} topicId={settings.getBijiTopicId} /></div>
           <div id="connections"><ConnectionSettings douyinLoggedIn={settings.douyinLoggedIn} feishuConnected={settings.feishuConnected} onLogin={() => void window.desktopApi?.loginDouyin()} /></div>
           <div id="ai"><AiProviderSettings initialBaseUrl={settings.customBaseUrl} initialModel={settings.modelId} initialProvider={(settings.providerId as AiProviderId | undefined) ?? 'qwen'} /></div>
           <section className="settings-section" id="schedule">

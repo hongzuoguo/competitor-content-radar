@@ -93,6 +93,15 @@ class CreatorRepository {
     return creator
   }
 
+  upsert(creator: Creator): Creator {
+    this.database.prepare(
+      `INSERT INTO creators (id, platform, name, profile_url, enabled, created_at)
+       VALUES (@id, @platform, @name, @profileUrl, @enabled, @createdAt)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, profile_url = excluded.profile_url`
+    ).run({ ...creator, enabled: creator.enabled ? 1 : 0 })
+    return creator
+  }
+
   list(): Creator[] {
     return this.database
       .prepare('SELECT * FROM creators ORDER BY created_at ASC')

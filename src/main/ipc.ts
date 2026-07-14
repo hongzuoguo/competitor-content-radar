@@ -1,7 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type CreatorView, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkDetail, type WorkListItem } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type CreatorView, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type PublicSettings, type SettingsInput, type UpdateState, type WorkDetail, type WorkListItem } from '../shared/ipc-contract'
 
 export interface IpcDependencies {
   getDashboard(): Promise<DashboardData>
@@ -12,7 +12,7 @@ export interface IpcDependencies {
   toggleCreator(id: string, enabled: boolean): Promise<void>
   loginDouyin(): Promise<void>
   getSettings(): Promise<PublicSettings>
-  saveSettings(settings: Partial<PublicSettings> & { apiKey?: string }): Promise<PublicSettings>
+  saveSettings(settings: SettingsInput): Promise<PublicSettings>
   startImport(request: ImportRequest): Promise<ImportStartResult>
   retryImport(workId: string): Promise<ImportStartResult>
   deleteFailedWork(workId: string): Promise<void>
@@ -53,7 +53,7 @@ export function registerIpcHandlers(dependencies: IpcDependencies, updates?: Upd
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => dependencies.getSettings())
   ipcMain.handle(IPC_CHANNELS.settingsSave, (_event, settings: unknown) => {
     if (!settings || typeof settings !== 'object') throw new Error('INVALID_SETTINGS')
-    return dependencies.saveSettings(settings as Partial<PublicSettings> & { apiKey?: string })
+    return dependencies.saveSettings(settings as SettingsInput)
   })
   ipcMain.handle(IPC_CHANNELS.updateGet, () => updates?.getState() ?? { status: 'idle' })
   ipcMain.handle(IPC_CHANNELS.updateRetry, () => updates?.retry())

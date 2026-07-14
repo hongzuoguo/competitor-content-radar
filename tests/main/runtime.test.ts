@@ -28,6 +28,21 @@ describe('desktop runtime assembly', () => {
     expect(repositories.settings.get<{ dailyTime: string }>('app.publicSettings')).toMatchObject({ dailyTime: '08:00' })
   })
 
+  it('stores the Get Biji API key through the secret port without persisting it publicly', async () => {
+    const saveGetBijiApiKey = vi.fn()
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn(), saveGetBijiApiKey
+    })
+
+    const saved = await runtime.saveSettings({
+      contentSource: 'get_biji', getBijiClientId: 'cli_test', getBijiTopicId: 'topic-1', getBijiApiKey: 'gk_live_secret'
+    })
+
+    expect(saveGetBijiApiKey).toHaveBeenCalledWith('gk_live_secret')
+    expect(saved).toMatchObject({ contentSource: 'get_biji', getBijiApiKeyConfigured: true })
+    expect(new AppRepositories(database.connection).settings.get('app.publicSettings')).not.toHaveProperty('getBijiApiKey')
+  })
+
   it('persists creators, normalizes URLs and enforces the ten-creator limit', async () => {
     const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
     await runtime.addCreator('https://www.douyin.com/user/first?from_tab_name=main')
@@ -224,6 +239,37 @@ describe('desktop runtime assembly', () => {
     expect(dashboard.newWorks).toBe(1)
     expect(dashboard.analyzedWorks).toBe(1)
     expect(dashboard.highlights).toHaveLength(1)
+  })
+
+  it('syncs Get Biji subscriptions and persists their transcript before analysis', async () => {
+    const syncCreators = vi.fn(async () => [{
+      id: 'getbiji:f-1', platform: 'douyin' as const, name: '林克AI实战录',
+      profileUrl: 'getbiji://blogger/f-1', enabled: true, createdAt: '2026-07-15T00:00:00.000Z'
+    }])
+    const discoverFromGetBiji = vi.fn(async (creatorId: string) => [{
+      id: 'getbiji:p-1', creatorId, platformWorkId: 'p-1', sourceType: 'douyin_monitor' as const,
+      sourceKey: 'getbiji:p-1', mediaPath: null, title: '标题', publishedAt: new Date().toISOString(),
+      originalUrl: 'https://www.douyin.com/video/1', downloadUrl: null,
+      metrics: { likes: 10, comments: 2, shares: 1, collects: 3 }, transcript: '上游完整文字稿'
+    }])
+    const repositories = new AppRepositories(database.connection)
+    const processWork = vi.fn(async (work: Work) => {
+      expect(repositories.artifacts.get(work.id)?.transcript).toBe('上游完整文字稿')
+      return { transcript: '上游完整文字稿', result: {}, provider: 'deepseek', model: 'chat', promptVersion: 'v1', tokenUsage: null }
+    })
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), discoverFromGetBiji, syncCreators, processWork, login: vi.fn()
+    })
+    await runtime.saveSettings({ contentSource: 'get_biji', providerId: 'deepseek', modelId: 'chat' })
+
+    expect(await runtime.runNow()).toEqual({ accepted: true })
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(syncCreators).toHaveBeenCalledTimes(1)
+    expect(discoverFromGetBiji).toHaveBeenCalledWith('getbiji:f-1', 'getbiji://blogger/f-1', expect.objectContaining({ contentSource: 'get_biji' }))
+    expect(processWork).toHaveBeenCalledTimes(1)
+    expect((await runtime.listWorks())[0]).toMatchObject({ status: 'completed', stage: 'completed' })
+    expect((await runtime.listCreators())[0]).toMatchObject({ name: '林克AI实战录', works: 1 })
   })
 
   it('stores discovered works when no AI provider is configured', async () => {

@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { APP_METADATA } from '../shared/app-metadata'
 import { IPC_CHANNELS, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkDetail, type WorkFocusRequest, type WorkListItem } from '../shared/ipc-contract'
-import type { CreatorView, PublicSettings } from '../shared/ipc-contract'
+import type { CreatorView, PublicSettings, SettingsInput } from '../shared/ipc-contract'
 
 export interface DesktopApi {
   getAppMetadata: () => Promise<typeof APP_METADATA>
@@ -14,7 +14,7 @@ export interface DesktopApi {
   toggleCreator: (id: string, enabled: boolean) => Promise<void>
   loginDouyin: () => Promise<void>
   getSettings: () => Promise<PublicSettings>
-  saveSettings: (settings: Partial<PublicSettings> & { apiKey?: string }) => Promise<PublicSettings>
+  saveSettings: (settings: SettingsInput) => Promise<PublicSettings>
   getUpdateState: () => Promise<UpdateState>
   retryUpdate: () => Promise<void>
   onUpdateState: (listener: (state: UpdateState) => void) => () => void

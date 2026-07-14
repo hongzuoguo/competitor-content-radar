@@ -32,4 +32,21 @@ describe('application settings', () => {
     expect(input).toHaveValue('08:00')
     expect(input).toBeDisabled()
   })
+
+  it('shows secure Get Biji source fields without exposing a saved API key', async () => {
+    Object.defineProperty(window, 'desktopApi', {
+      configurable: true,
+      value: { getSettings: vi.fn().mockResolvedValue({
+        contentSource: 'get_biji', getBijiTopicId: 'Y2m4oeAn', getBijiClientId: 'cli_saved', getBijiApiKeyConfigured: true
+      }) }
+    })
+
+    render(<SettingsPage />)
+
+    expect(await screen.findByLabelText('采集方式')).toHaveValue('get_biji')
+    expect(screen.getByLabelText('知识库专题 ID')).toHaveValue('Y2m4oeAn')
+    expect(screen.getByLabelText('Client ID')).toHaveValue('cli_saved')
+    expect(screen.getByLabelText('得到大脑 API Key')).toHaveValue('')
+    expect(screen.getByPlaceholderText('已安全保存；不修改可留空')).toBeInTheDocument()
+  })
 })

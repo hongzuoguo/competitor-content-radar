@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { Work } from '../core/domain'
+import type { Creator, Work } from '../core/domain'
 import { calculateEngagement, evaluateHighlight } from '../core/highlight-rules'
 import { nextDailyRun } from './scheduler'
 import { normalizeCreatorUrl, selectBaselineWorks, selectRecentWorks } from '../services/douyin/normalizers'
 import { AppRepositories, type AnalysisRecord, type RunRecord } from '../services/database/repositories'
 import type { AppDatabase } from '../services/database/database'
-import type { CreatorView, DashboardData, PublicSettings, WorkDetail, WorkListItem } from '../shared/ipc-contract'
+import type { CreatorView, DashboardData, PublicSettings, SettingsInput, WorkDetail, WorkListItem } from '../shared/ipc-contract'
 import { AnalysisSchema } from '../services/ai/analysis-schema'
 import { isImportRetryable, type ImportRequest, type ImportService, type ImportStartResult } from '../services/import/import-service'
 
@@ -18,12 +18,17 @@ export interface ProcessedWork {
   tokenUsage: Record<string, number> | null
 }
 
+export type DiscoveredWork = Work & { transcript?: string }
+
 export interface RuntimePorts {
-  discover(creatorId: string, profileUrl: string): Promise<Work[]>
+  discover(creatorId: string, profileUrl: string): Promise<DiscoveredWork[]>
+  discoverFromGetBiji?(creatorId: string, profileUrl: string, settings: PublicSettings): Promise<DiscoveredWork[]>
   processWork(work: Work, settings: PublicSettings): Promise<ProcessedWork>
   login(): Promise<void>
+  syncCreators?(settings: PublicSettings): Promise<Creator[]>
   resolveCreatorInput?(input: string): Promise<string>
   saveApiKey?(providerId: string, apiKey: string): Promise<void> | void
+  saveGetBijiApiKey?(apiKey: string): Promise<void> | void
   report?(level: 'info' | 'error', message: string, detail?: unknown): void
 }
 
@@ -276,10 +281,14 @@ export class DesktopRuntime {
     }
   }
 
-  async saveSettings(settings: Partial<PublicSettings> & { apiKey?: string }): Promise<PublicSettings> {
-    const { apiKey, dailyTime: _ignoredDailyTime, ...publicSettings } = settings
+  async saveSettings(settings: SettingsInput): Promise<PublicSettings> {
+    const { apiKey, getBijiApiKey, dailyTime: _ignoredDailyTime, ...publicSettings } = settings
     if (apiKey && publicSettings.providerId) {
       await this.ports.saveApiKey?.(publicSettings.providerId, apiKey)
+    }
+    if (getBijiApiKey) {
+      await this.ports.saveGetBijiApiKey?.(getBijiApiKey)
+      publicSettings.getBijiApiKeyConfigured = true
     }
     const merged = { ...(await this.getSettings()), ...publicSettings, dailyTime: '08:00' }
     this.repositories.settings.set('app.publicSettings', merged)
@@ -299,6 +308,14 @@ export class DesktopRuntime {
     if (this.shuttingDown) return { accepted: false, reason: '应用正在退出' }
     if (this.running) return { accepted: false, reason: '已有任务正在运行' }
     const settings = await this.getSettings()
+    if (settings.contentSource === 'get_biji' && this.ports.syncCreators) {
+      try {
+        const syncedCreators = await this.ports.syncCreators(settings)
+        for (const creator of syncedCreators) this.repositories.creators.upsert(creator)
+      } catch (error) {
+        return { accepted: false, reason: error instanceof Error ? error.message : '得到大脑同步失败，请稍后重试。' }
+      }
+    }
     const creators = this.repositories.creators.list().filter((creator) => creator.enabled)
     if (creators.length === 0) return { accepted: false, reason: '请先添加至少一位博主' }
     this.running = true
@@ -329,9 +346,12 @@ export class DesktopRuntime {
       })
       for (const creator of creators) {
         this.ports.report?.('info', '开始采集博主', { creatorId: creator.id, profileUrl: creator.profileUrl })
-        let discovered: Work[]
+        let discovered: DiscoveredWork[]
         try {
-          discovered = selectBaselineWorks(await this.ports.discover(creator.id, creator.profileUrl))
+          const discover = settings.contentSource === 'get_biji' && this.ports.discoverFromGetBiji
+            ? this.ports.discoverFromGetBiji(creator.id, creator.profileUrl, settings)
+            : this.ports.discover(creator.id, creator.profileUrl)
+          discovered = selectBaselineWorks(await discover)
         } catch (error) {
           partial = true
           discoveryFailed = true
@@ -342,6 +362,12 @@ export class DesktopRuntime {
         for (const work of discovered) {
           this.repositories.transaction(() => {
             this.repositories.works.upsert(work)
+            if (work.transcript) {
+              this.repositories.artifacts.save({
+                workId: work.id, wavPath: null, transcript: work.transcript,
+                existingWorkId: null, updatedAt: new Date().toISOString()
+              })
+            }
             this.repositories.snapshots.create({
               id: randomUUID(), workId: work.id, capturedAt: new Date().toISOString(), metrics: work.metrics
             })
@@ -365,11 +391,21 @@ export class DesktopRuntime {
                 createdAt: new Date().toISOString()
               }
               this.repositories.analyses.save(analysis)
+              this.repositories.jobs.save({
+                workId: work.id, stage: 'completed', status: 'completed', attemptCount: 1,
+                nextAttemptAt: null, errorCode: null, errorMessage: null, updatedAt: new Date().toISOString()
+              })
               this.emitWorkStateChanged(work.id)
               analyzedCount += 1
             } catch (error) {
               partial = true
               analysisFailed = true
+              this.repositories.jobs.save({
+                workId: work.id, stage: 'analyzed', status: 'failed', attemptCount: 1,
+                nextAttemptAt: null,
+                errorCode: typeof error === 'object' && error && 'code' in error ? String(error.code) : 'WORK_PROCESSING_FAILED',
+                errorMessage: error instanceof Error ? error.message : '作品处理失败', updatedAt: new Date().toISOString()
+              })
               this.ports.report?.('error', '作品处理失败', { workId: work.id, error })
               continue
             }

@@ -99,6 +99,10 @@ export interface CreatorView {
 }
 
 export interface PublicSettings {
+  contentSource?: 'douyin_browser' | 'get_biji'
+  getBijiClientId?: string
+  getBijiTopicId?: string
+  getBijiApiKeyConfigured?: boolean
   providerId?: string
   modelId?: string
   customBaseUrl?: string
@@ -111,6 +115,8 @@ export interface PublicSettings {
   feishuConnected?: boolean
   douyinLoggedIn?: boolean
 }
+
+export type SettingsInput = Partial<PublicSettings> & { apiKey?: string; getBijiApiKey?: string }
 
 export interface DashboardHighlight {
   id: string

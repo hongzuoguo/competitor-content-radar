@@ -24,6 +24,7 @@ import { ingestLocalFile } from '../services/import/local-file-source'
 import { resolveDouyinVideo } from '../services/import/douyin-video-source'
 import { resolveDouyinCreatorUrl } from '../services/douyin/creator-url'
 import { createCreatorRedirectFetch } from './creator-redirect-request'
+import { GetBijiClient } from '../services/get-biji/client'
 
 interface ModelManifest {
   id: string
@@ -96,6 +97,13 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
   }
 
   async function processWork(work: Work, settings: PublicSettings): Promise<ProcessedWork> {
+    const savedTranscript = repositories.artifacts.get(work.id)?.transcript
+    if (savedTranscript) {
+      const output = await processor.analyze(work.id, savedTranscript, settings)
+      repositories.jobs.saveStage(work.id, 'analyzed')
+      repositories.jobs.saveStage(work.id, 'completed')
+      return { transcript: savedTranscript, ...output }
+    }
     if (!work.downloadUrl) throw Object.assign(new Error('作品没有可用的公开下载地址'), {
       code: 'DOUYIN_MEDIA_URL_MISSING', retryable: false
     })
@@ -132,11 +140,51 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
 
   const ports: RuntimePorts = {
     discover: (creatorId, profileUrl) => douyin.captureCreatorWorks(creatorId, profileUrl),
+    discoverFromGetBiji: async (creatorId, profileUrl, settings) => {
+      const followId = profileUrl.startsWith('getbiji://blogger/')
+        ? decodeURIComponent(profileUrl.slice('getbiji://blogger/'.length))
+        : null
+      if (!followId) return []
+      const client = createGetBijiClient(settings)
+      const contents = await client.listContents(followId)
+      const works = []
+      for (const content of contents) {
+        const detail = await client.getContentDetail(content.postId)
+        works.push({
+          id: `getbiji:${content.postId}`, creatorId, platformWorkId: content.postId,
+          sourceType: 'douyin_monitor' as const, sourceKey: `getbiji:${content.postId}`,
+          mediaPath: null, title: content.title, publishedAt: content.publishedAt,
+          originalUrl: detail.originalUrl ?? content.originalUrl, downloadUrl: null,
+          metrics: content.metrics, transcript: detail.transcript
+        })
+      }
+      return works
+    },
     processWork,
     login: () => douyin.openLoginWindow(),
     resolveCreatorInput: (input) => resolveDouyinCreatorUrl(input, createCreatorRedirectFetch()),
     saveApiKey: (providerId, apiKey) => secrets.set(`ai.${providerId}`, apiKey),
+    saveGetBijiApiKey: (apiKey) => secrets.set('get-biji.apiKey', apiKey),
+    syncCreators: async (settings) => {
+      if (settings.contentSource !== 'get_biji') return []
+      const bloggers = await createGetBijiClient(settings).listBloggers()
+      return bloggers.map((blogger) => ({
+        id: `getbiji:${blogger.followId}`, platform: 'douyin' as const, name: blogger.name,
+        profileUrl: `getbiji://blogger/${encodeURIComponent(blogger.followId)}`,
+        enabled: true, createdAt: new Date().toISOString()
+      }))
+    },
     report: (level, message, detail) => log[level](message, detail ?? '')
+  }
+
+  function createGetBijiClient(settings: PublicSettings): GetBijiClient {
+    const apiKey = secrets.get('get-biji.apiKey')
+    if (!settings.getBijiClientId || !settings.getBijiTopicId || !apiKey) {
+      throw Object.assign(new Error('请先在设置中填写得到大脑专题 ID、Client ID 和 API Key。'), {
+        code: 'GET_BIJI_SETTINGS_MISSING'
+      })
+    }
+    return new GetBijiClient({ clientId: settings.getBijiClientId, topicId: settings.getBijiTopicId, apiKey })
   }
   const imports = new ImportService({
     repositories,
