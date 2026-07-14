@@ -89,11 +89,11 @@ describe('removeManagedWorkDirectory', () => {
     let rootChecks = 0
     await expect(removeManagedWorkDirectory(root, 'failed-work', {
       lstat: async (path) => {
-        const value = await lstat(path)
+        const value = await lstat(path, { bigint: true })
         if (path.toLowerCase() === root.toLowerCase() && ++rootChecks === 2) {
           return new Proxy(value, {
             get(target, property, receiver) {
-              return property === 'ino' ? Number(value.ino) + 1 : Reflect.get(target, property, receiver)
+              return property === 'ino' ? value.ino + 1n : Reflect.get(target, property, receiver)
             }
           })
         }
@@ -122,5 +122,26 @@ describe('removeManagedWorkDirectory', () => {
     await expect(failure).rejects.toMatchObject({ code: 'UNSAFE_MANAGED_WORK_PATH' })
     await expect(failure).rejects.not.toThrow(root)
     expect(existsSync(join(root, 'failed-work'))).toBe(true)
+  })
+
+  it('requests bigint filesystem identities for stable Windows comparisons', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radar-delete-'))
+    directories.push(root)
+    mkdirSync(join(root, 'failed-work'))
+    const { lstat, realpath, stat, rm } = await import('node:fs/promises')
+    const lstatSpy = vi.fn(async (path: string, _options?: { bigint: true }) =>
+      await lstat(path, { bigint: true }) as never)
+    const statSpy = vi.fn(async (path: string, _options?: { bigint: true }) =>
+      await stat(path, { bigint: true }) as never)
+
+    await removeManagedWorkDirectory(root, 'failed-work', {
+      lstat: lstatSpy,
+      realpath,
+      stat: statSpy,
+      rm
+    })
+
+    expect(lstatSpy).toHaveBeenCalledWith(expect.any(String), { bigint: true })
+    expect(statSpy).toHaveBeenCalledWith(expect.any(String), { bigint: true })
   })
 })

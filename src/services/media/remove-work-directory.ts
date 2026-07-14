@@ -1,13 +1,13 @@
 import { lstat, realpath, rm, stat } from 'node:fs/promises'
-import type { Stats } from 'node:fs'
+import type { BigIntStats } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
 const SAFE_WORK_ID = /^[A-Za-z0-9_-]+$/
 
 export interface RemoveWorkDirectoryDependencies {
-  lstat(path: string): Promise<Stats>
+  lstat(path: string, options: { bigint: true }): Promise<BigIntStats>
   realpath(path: string): Promise<string>
-  stat(path: string): Promise<Stats>
+  stat(path: string, options: { bigint: true }): Promise<BigIntStats>
   rm(path: string, options: { recursive: true, force: true }): Promise<void>
 }
 
@@ -69,8 +69,8 @@ export async function removeManagedWorkDirectory(
 }
 
 interface DirectoryIdentity {
-  dev: number | bigint
-  ino: number | bigint
+  dev: bigint
+  ino: bigint
   realPath: string
 }
 
@@ -78,12 +78,12 @@ async function inspectDirectory(
   dependencies: RemoveWorkDirectoryDependencies,
   path: string
 ): Promise<DirectoryIdentity> {
-  const linkStats = await dependencies.lstat(path)
+  const linkStats = await dependencies.lstat(path, { bigint: true })
   if (linkStats.isSymbolicLink() || !linkStats.isDirectory()) {
     throw new ManagedWorkDirectoryError('UNSAFE_MANAGED_WORK_PATH')
   }
   const resolved = await dependencies.realpath(path)
-  const targetStats = await dependencies.stat(resolved)
+  const targetStats = await dependencies.stat(resolved, { bigint: true })
   if (!targetStats.isDirectory() || linkStats.dev !== targetStats.dev || linkStats.ino !== targetStats.ino) {
     throw new ManagedWorkDirectoryError('UNSAFE_MANAGED_WORK_PATH')
   }

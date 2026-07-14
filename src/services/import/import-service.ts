@@ -53,6 +53,7 @@ export class ImportService {
   private readonly activePromises = new Map<string, Promise<void>>()
   private readonly pendingRequests = new Map<string, ImportRequest>()
   private readonly deleting = new Set<string>()
+  private readonly deletionPromises = new Map<string, Promise<void>>()
   private shuttingDown = false
   private readonly downloadGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.download)
   private readonly transcriptionGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.transcription)
@@ -128,22 +129,12 @@ export class ImportService {
     }
 
     this.deleting.add(workId)
-    try {
-      try {
-        const removeWorkDirectory = this.dependencies.removeManagedWorkDirectory ?? defaultRemoveManagedWorkDirectory
-        await removeWorkDirectory(this.dependencies.mediaRoot, workId)
-      } catch (error) {
-        throw new ImportError('FAILED_WORK_FILE_CLEANUP_FAILED', 'Failed work files could not be removed.', { cause: error })
-      }
-
-      this.dependencies.repositories.transaction(() => {
-        this.dependencies.repositories.works.delete(workId)
-      })
-      this.pendingRequests.delete(workId)
-      this.emit(workId)
-    } finally {
+    const operation = this.performFailedDeletion(workId).finally(() => {
       this.deleting.delete(workId)
-    }
+      this.deletionPromises.delete(workId)
+    })
+    this.deletionPromises.set(workId, operation)
+    await operation
   }
 
   reconcileInterruptedJobs(): void {
@@ -168,7 +159,23 @@ export class ImportService {
 
   async shutdown(): Promise<void> {
     this.shuttingDown = true
-    await Promise.all([...this.activePromises.values()])
+    const operations = [...this.activePromises.values(), ...this.deletionPromises.values()]
+    await Promise.all(operations.map((operation) => operation.catch(() => undefined)))
+  }
+
+  private async performFailedDeletion(workId: string): Promise<void> {
+    try {
+      const removeWorkDirectory = this.dependencies.removeManagedWorkDirectory ?? defaultRemoveManagedWorkDirectory
+      await removeWorkDirectory(this.dependencies.mediaRoot, workId)
+    } catch (error) {
+      throw new ImportError('FAILED_WORK_FILE_CLEANUP_FAILED', 'Failed work files could not be removed.', { cause: error })
+    }
+
+    this.dependencies.repositories.transaction(() => {
+      this.dependencies.repositories.works.delete(workId)
+    })
+    this.pendingRequests.delete(workId)
+    this.emit(workId)
   }
 
   private validateCreator(creatorId: string | null): void {

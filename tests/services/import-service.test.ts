@@ -509,6 +509,33 @@ describe('ImportService', () => {
     expect(repositories.works.get('failed-work')).toBeNull()
   })
 
+  it('waits for an in-progress failed task deletion during shutdown', async () => {
+    let releaseCleanup!: () => void
+    const cleanup = new Promise<void>((resolve) => { releaseCleanup = resolve })
+    repositories.works.upsert({
+      id: 'failed-work', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'sha256:shutdown-delete', mediaPath: null, title: 'Failed',
+      publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'failed-work', stage: 'discovered', status: 'failed', attemptCount: 1,
+      nextAttemptAt: null, errorCode: 'FAILED', errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    const service = new ImportService(dependencies({ removeManagedWorkDirectory: vi.fn(() => cleanup) }))
+
+    const deletion = service.deleteFailed('failed-work')
+    let shutdownFinished = false
+    const shutdown = service.shutdown().then(() => { shutdownFinished = true })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shutdownFinished).toBe(false)
+
+    releaseCleanup()
+    await deletion
+    await shutdown
+    expect(repositories.works.get('failed-work')).toBeNull()
+  })
+
   it('waits for active work during shutdown and rejects new imports', async () => {
     let release!: () => void
     const blocked = new Promise<void>((resolve) => { release = resolve })
