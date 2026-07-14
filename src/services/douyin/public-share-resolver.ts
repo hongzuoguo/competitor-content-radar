@@ -165,7 +165,13 @@ async function resolveEndpoint(
     await response.body?.cancel().catch(() => undefined)
     return null
   }
-  const body = await readLimitedBody(response, maxBodyBytes)
+  let body: string
+  try {
+    body = await readLimitedBody(response, maxBodyBytes)
+  } catch (error) {
+    if (error instanceof PublicShareError || error instanceof DouyinRiskControlError) throw error
+    throw new EndpointRequestFailedError()
+  }
   if (isRiskControlText(body)) throw new DouyinRiskControlError()
   if (!response.ok) return null
   let payload: unknown
@@ -178,7 +184,10 @@ async function resolveEndpoint(
       return null
     }
   }
-  if (!payload) return null
+  if (!payload) {
+    const title = endpoint.source === 'share_page' ? parseSharePageTitle(body) : null
+    return title ? metadataOnlyVideo(videoId, title) : null
+  }
   if (isRiskControlText(JSON.stringify(payload))) throw new DouyinRiskControlError()
   const raw = endpoint.knownLoaderOnly
     ? findKnownLoaderWork(videoId, payload)
@@ -302,6 +311,50 @@ function parseRouterData(html: string): unknown | null {
     if (parsed) return parsed
   }
   return null
+}
+
+function parseSharePageTitle(html: string): string | null {
+  let document: DefaultTreeAdapterMap['document']
+  try {
+    document = parse(html)
+  } catch {
+    return null
+  }
+  const metadata = new Map<string, string>()
+  collectMetaContent(document, metadata)
+  return metadata.get('og:title') ?? metadata.get('og:description') ?? metadata.get('description') ?? null
+}
+
+function collectMetaContent(
+  node: DefaultTreeAdapterMap['node'],
+  output: Map<string, string>
+): void {
+  if (defaultTreeAdapter.isElementNode(node) && defaultTreeAdapter.getTagName(node) === 'meta') {
+    const attributes = new Map(
+      defaultTreeAdapter.getAttrList(node).map((attribute) => [attribute.name.toLowerCase(), attribute.value])
+    )
+    const key = (attributes.get('property') ?? attributes.get('name') ?? '').trim().toLowerCase()
+    const content = attributes.get('content')?.trim()
+    if (content && ['og:title', 'og:description', 'description'].includes(key) && !output.has(key)) {
+      output.set(key, content)
+    }
+  }
+  if (!('childNodes' in node)) return
+  for (const child of node.childNodes) collectMetaContent(child, output)
+}
+
+function metadataOnlyVideo(videoId: string, title: string): PublicDouyinVideo {
+  return {
+    videoId,
+    title,
+    downloadUrl: null,
+    authorName: null,
+    likes: null,
+    comments: null,
+    shares: null,
+    coverUrl: null,
+    source: 'share_page'
+  }
 }
 
 function collectScriptText(node: DefaultTreeAdapterMap['node'], output: string[]): void {

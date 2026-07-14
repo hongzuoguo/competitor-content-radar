@@ -7,10 +7,32 @@ import {
   type ShortLinkResolver
 } from '../../src/services/import/douyin-video-source'
 import type { PublicDouyinVideo } from '../../src/services/douyin/public-share-resolver'
+import { resolvePublicDouyinVideo } from '../../src/services/douyin/public-share-resolver'
 
 const noPublicResult = vi.fn(async (): Promise<PublicDouyinVideo | null> => null)
 
 describe('Douyin video URL import', () => {
+  it('opens the browser once after every public endpoint body stream fails', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    for (const contentType of ['text/html', 'application/json', 'text/html', 'application/json']) {
+      fetcher.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.error(new Error('stream interrupted')) }
+      }), { headers: { 'content-type': contentType } }))
+    }
+    const captureSingleVideo = vi.fn().mockResolvedValue({
+      title: '浏览器文案',
+      downloadUrl: 'https://media.example.com/browser.mp4'
+    })
+
+    await expect(resolveDouyinVideo(
+      'https://www.douyin.com/video/7658',
+      { captureSingleVideo },
+      fetch,
+      (videoId) => resolvePublicDouyinVideo(videoId, { fetcher })
+    )).resolves.toMatchObject({ title: '浏览器文案' })
+    expect(fetcher).toHaveBeenCalledTimes(4)
+    expect(captureSingleVideo).toHaveBeenCalledOnce()
+  })
   it('uses public media without opening the browser', async () => {
     const captureSingleVideo = vi.fn()
     const resolvePublic = vi.fn().mockResolvedValue({

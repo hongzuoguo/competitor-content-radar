@@ -23,6 +23,14 @@ function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
   })
 }
 
+function brokenStreamResponse(contentType = 'text/html'): Response {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error('stream failed https://private.test/?token=secret'))
+    }
+  }), { headers: { 'content-type': contentType } })
+}
+
 function video(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     aweme_id: ID,
@@ -103,6 +111,71 @@ describe('Douyin public share resolver', () => {
     await expect(resolvePublicDouyinVideo(ID, { fetcher: tooLarge, maxBodyBytes: 100 })).rejects.toMatchObject({
       code: 'DOUYIN_PUBLIC_SHARE_BODY_TOO_LARGE'
     })
+  })
+
+  it('uses real Open Graph metadata on the share page without treating it as media', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(response([
+        '<html><head>',
+        '<meta content="真实作品 &amp; 创作说明" data-extra="1" property="og:title">',
+        '<meta name="description" content="补充描述">',
+        '</head></html>'
+      ].join('')))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toEqual({
+      videoId: ID,
+      title: '真实作品 & 创作说明',
+      downloadUrl: null,
+      authorName: null,
+      likes: null,
+      comments: null,
+      shares: null,
+      coverUrl: null,
+      source: 'share_page'
+    })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('ignores meta-looking text in comments and textarea content', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(response([
+        '<!-- <meta property="og:title" content="comment fake"> -->',
+        '<textarea><meta property="og:title" content="textarea fake"></textarea>'
+      ].join('')))
+      .mockResolvedValueOnce(jsonResponse({ item_list: [video()] }))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({
+      title: '测试作品',
+      source: 'iteminfo_api'
+    })
+    expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
+  it('does not use Open Graph metadata when structured data names a different work', async () => {
+    const mismatched = `<script>window._ROUTER_DATA=${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video({ aweme_id: '999' }) } }
+    })}</script><meta property="og:title" content="wrong work">`
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(response(mismatched))
+      .mockResolvedValueOnce(jsonResponse({ item_list: [video()] }))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ source: 'iteminfo_api' })
+    expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
+  it('continues to the next endpoint when reading a response stream fails', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(brokenStreamResponse())
+      .mockResolvedValueOnce(jsonResponse({ aweme_detail: video() }))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ source: 'detail_api' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
   it('parses a video from window._ROUTER_DATA and sends a constrained request', async () => {
