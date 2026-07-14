@@ -31,6 +31,15 @@ export class ModelManager {
     await mkdir(dirname(destination), { recursive: true })
     const partial = `${destination}.part`
     let offset = existsSync(partial) ? statSync(partial).size : 0
+    if (existsSync(partial) && offset === manifest.size) {
+      if ((await sha256(partial)) === manifest.sha256) {
+        rmSync(destination, { force: true })
+        renameSync(partial, destination)
+        return
+      }
+      rmSync(partial, { force: true })
+      offset = 0
+    }
     if (offset > manifest.size) {
       rmSync(partial, { force: true })
       offset = 0
@@ -39,19 +48,26 @@ export class ModelManager {
     const response = await createTransportRetryFetcher(this.fetchImplementation)(manifest.url, {
       headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined
     })
-    if (!response.ok || !response.body) throw new Error(`MODEL_DOWNLOAD_HTTP_${response.status}`)
+    if (!response.ok || !response.body) {
+      await response.body?.cancel().catch(() => undefined)
+      throw new Error(`MODEL_DOWNLOAD_HTTP_${response.status}`)
+    }
 
     const append = offset > 0 && response.status === 206
-    const handle = await open(partial, append ? 'a' : 'w')
+    const reader = response.body.getReader()
+    let handle: Awaited<ReturnType<typeof open>> | undefined
     try {
-      const reader = response.body.getReader()
+      handle = await open(partial, append ? 'a' : 'w')
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
         await handle.write(value)
       }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined)
+      throw error
     } finally {
-      await handle.close()
+      await handle?.close()
     }
 
     const valid = statSync(partial).size === manifest.size && (await sha256(partial)) === manifest.sha256

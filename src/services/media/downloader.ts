@@ -11,8 +11,8 @@ const MAX_MEDIA_REDIRECTS = 3
 class MediaDownloadError extends Error {
   readonly code: string
 
-  constructor(code: string) {
-    super(code)
+  constructor(code: string, message = code) {
+    super(message)
     this.name = 'MediaDownloadError'
     this.code = code
   }
@@ -26,14 +26,35 @@ export async function downloadMedia(
   if (!isSafeDouyinMediaUrl(url)) throw new MediaDownloadError('UNSAFE_MEDIA_URL')
   await mkdir(dirname(destination), { recursive: true })
   const offset = existsSync(destination) ? statSync(destination).size : 0
-  const response = await fetchMedia(url, offset, fetchImplementation)
-  if (!response.ok || !response.body) throw new Error(`MEDIA_DOWNLOAD_HTTP_${response.status}`)
+  let response: Response
+  try {
+    response = await fetchMedia(url, offset, fetchImplementation)
+  } catch (error) {
+    if (error instanceof MediaDownloadError) throw error
+    throw new MediaDownloadError('DOUYIN_DOWNLOAD_FAILED', 'MEDIA_DOWNLOAD_TRANSPORT_FAILED')
+  }
+  if (!response.ok || !response.body) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new MediaDownloadError('DOUYIN_DOWNLOAD_FAILED', `MEDIA_DOWNLOAD_HTTP_${response.status}`)
+  }
+
+  if (response.status === 206 && contentRangeStart(response.headers.get('content-range')) !== offset) {
+    await response.body.cancel().catch(() => undefined)
+    throw new MediaDownloadError('MEDIA_DOWNLOAD_INVALID_CONTENT_RANGE')
+  }
 
   const append = offset > 0 && response.status === 206
   await pipeline(
     Readable.fromWeb(response.body as never),
     createWriteStream(destination, { flags: append ? 'a' : 'w' })
   )
+}
+
+function contentRangeStart(value: string | null): number | null {
+  const match = /^bytes (\d+)-\d+\/(?:\d+|\*)$/i.exec(value ?? '')
+  if (!match) return null
+  const start = Number(match[1])
+  return Number.isSafeInteger(start) ? start : null
 }
 
 async function fetchMedia(

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { downloadMedia } from '../../src/services/media/downloader'
@@ -102,36 +102,65 @@ describe('media downloader URL safety', () => {
       'https://v3-web.douyinvod.com/video.mp4',
       await destination(),
       fetcher
-    )).rejects.toBe(failure)
+    )).rejects.toMatchObject({ code: 'DOUYIN_DOWNLOAD_FAILED', message: 'MEDIA_DOWNLOAD_TRANSPORT_FAILED' })
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
-  it('shares the three-attempt budget across redirects', async () => {
-    const failure = new TypeError('fetch failed')
+  it('does not consume the next request retry budget on a successful redirect', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, {
         status: 302,
         headers: { location: 'https://v9-dy-o-abtest.zjcdn.com/final.mp4' }
       }))
-      .mockRejectedValue(failure)
+      .mockRejectedValueOnce(new TypeError('first final fetch failed'))
+      .mockRejectedValueOnce(new TypeError('second final fetch failed'))
+      .mockResolvedValueOnce(new Response('video-after-redirect-retries', { status: 200 }))
+    const path = await destination()
 
-    await expect(downloadMedia(
+    await downloadMedia(
       'https://v3-web.douyinvod.com/start.mp4',
-      await destination(),
+      path,
       fetcher
-    )).rejects.toBe(failure)
-    expect(fetcher).toHaveBeenCalledTimes(3)
+    )
+
+    expect(fetcher).toHaveBeenCalledTimes(4)
+    expect(await readFile(path, 'utf8')).toBe('video-after-redirect-retries')
   })
 
   it('does not retry an HTTP failure', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('unavailable', { status: 503 }))
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const response = new Response('unavailable', { status: 503 })
+    vi.spyOn(response.body!, 'cancel').mockImplementation(cancel)
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response)
 
     await expect(downloadMedia(
       'https://v3-web.douyinvod.com/video.mp4',
       await destination(),
       fetcher
-    )).rejects.toThrow('MEDIA_DOWNLOAD_HTTP_503')
+    )).rejects.toMatchObject({ code: 'DOUYIN_DOWNLOAD_FAILED', message: 'MEDIA_DOWNLOAD_HTTP_503' })
     expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [5, 'bytes 4-9/10'],
+    [0, 'bytes 5-9/10'],
+    [5, null]
+  ] as const)('rejects an invalid 206 Content-Range for offset %s: %s', async (offset, contentRange) => {
+    const path = await destination()
+    if (offset > 0) await writeFile(path, 'x'.repeat(offset))
+    const headers = contentRange ? { 'content-range': contentRange } : undefined
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const response = new Response('partial', { status: 206, headers })
+    vi.spyOn(response.body!, 'cancel').mockImplementation(cancel)
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response)
+
+    await expect(downloadMedia(
+      'https://v3-web.douyinvod.com/video.mp4',
+      path,
+      fetcher
+    )).rejects.toMatchObject({ code: 'MEDIA_DOWNLOAD_INVALID_CONTENT_RANGE' })
+    expect(cancel).toHaveBeenCalledTimes(1)
   })
 
   it.each([null, 'https://['])('reports an invalid redirect Location independently: %s', async (location) => {

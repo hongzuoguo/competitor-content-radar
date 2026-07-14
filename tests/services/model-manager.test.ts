@@ -36,6 +36,52 @@ describe('SenseVoice model manager', () => {
     expect(readFileSync(destination)).toEqual(expected)
   })
 
+  it('promotes a complete valid partial file without fetching it again', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
+    directories.push(directory)
+    const destination = join(directory, 'tokens.txt')
+    const expected = Buffer.from('a\nb\n')
+    writeFileSync(`${destination}.part`, expected)
+    const fetcher = vi.fn<typeof fetch>()
+    const manager = new ModelManager(fetcher)
+
+    await manager.ensureFile(
+      {
+        url: 'https://example.test/tokens.txt',
+        size: expected.length,
+        sha256: createHash('sha256').update(expected).digest('hex')
+      },
+      destination
+    )
+
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(readFileSync(destination)).toEqual(expected)
+  })
+
+  it('discards a complete invalid partial file and downloads from zero', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
+    directories.push(directory)
+    const destination = join(directory, 'tokens.txt')
+    const expected = Buffer.from('a\nb\n')
+    writeFileSync(`${destination}.part`, Buffer.from('bad!'))
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      expect(new Headers(init?.headers).get('Range')).toBeNull()
+      return new Response(expected, { status: 200 })
+    })
+    const manager = new ModelManager(fetcher)
+
+    await manager.ensureFile(
+      {
+        url: 'https://example.test/tokens.txt',
+        size: expected.length,
+        sha256: createHash('sha256').update(expected).digest('hex')
+      },
+      destination
+    )
+
+    expect(readFileSync(destination)).toEqual(expected)
+  })
+
   it('rejects and removes a file with the wrong digest', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
     directories.push(directory)
@@ -92,7 +138,10 @@ describe('SenseVoice model manager', () => {
     const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
     directories.push(directory)
     const destination = join(directory, 'tokens.txt')
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('unavailable', { status: 503 }))
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const response = new Response('unavailable', { status: 503 })
+    vi.spyOn(response.body!, 'cancel').mockImplementation(cancel)
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response)
     const manager = new ModelManager(fetcher)
 
     await expect(manager.ensureFile(
@@ -100,5 +149,24 @@ describe('SenseVoice model manager', () => {
       destination
     )).rejects.toThrow('MODEL_DOWNLOAD_HTTP_503')
     expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels the model response stream when reading fails', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
+    directories.push(directory)
+    const destination = join(directory, 'tokens.txt')
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const body = {
+      getReader: () => ({ read: vi.fn().mockRejectedValue(new Error('read failed')), cancel })
+    }
+    const response = { ok: true, status: 200, body } as unknown as Response
+    const manager = new ModelManager(vi.fn<typeof fetch>().mockResolvedValue(response))
+
+    await expect(manager.ensureFile(
+      { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
+      destination
+    )).rejects.toThrow('read failed')
+    expect(cancel).toHaveBeenCalledTimes(1)
   })
 })
