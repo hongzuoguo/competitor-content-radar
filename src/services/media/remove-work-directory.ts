@@ -35,7 +35,6 @@ export async function removeManagedWorkDirectory(
 
   try {
     const rootIdentity = await inspectDirectory(dependencies, root)
-    if (rootIdentity.realPath !== normalizePath(root)) throw new ManagedWorkDirectoryError('UNSAFE_MANAGED_WORK_PATH')
 
     let candidateIdentity: DirectoryIdentity
     try {
@@ -50,7 +49,7 @@ export async function removeManagedWorkDirectory(
       }
       throw error
     }
-    if (candidateIdentity.realPath !== normalizePath(candidate) || dirname(candidateIdentity.realPath) !== rootIdentity.realPath) {
+    if (dirname(candidateIdentity.realPath) !== rootIdentity.realPath) {
       throw new ManagedWorkDirectoryError('UNSAFE_MANAGED_WORK_PATH')
     }
 

@@ -31,6 +31,28 @@ describe('removeManagedWorkDirectory', () => {
     await expect(removeManagedWorkDirectory(root, 'missing-work')).resolves.toBeUndefined()
   })
 
+  it('accepts a managed directory below a canonically mapped parent', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radar-delete-'))
+    directories.push(root)
+    mkdirSync(join(root, 'failed-work'))
+    const { lstat, realpath, stat } = await import('node:fs/promises')
+    const canonicalRoot = join(tmpdir(), 'canonical-radar-root')
+    const rm = vi.fn(async () => {})
+
+    await removeManagedWorkDirectory(root, 'failed-work', {
+      lstat,
+      realpath: vi.fn(async (path: string) =>
+        path === root ? canonicalRoot : join(canonicalRoot, 'failed-work')),
+      stat: async (path, options) => {
+        const originalPath = path === canonicalRoot ? root : join(root, 'failed-work')
+        return await stat(originalPath, options)
+      },
+      rm
+    })
+
+    expect(rm).toHaveBeenCalledWith(join(root, 'failed-work'), { recursive: true, force: true })
+  })
+
   it.each(['..', '../outside', 'child/name', 'child\\name', 'C:\\outside', '/outside', '', '.'])
   ('rejects unsafe work id %j', async (workId) => {
     const root = mkdtempSync(join(tmpdir(), 'radar-delete-'))
