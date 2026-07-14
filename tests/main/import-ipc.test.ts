@@ -105,7 +105,25 @@ describe('import IPC', () => {
 
     await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, 'failed-1')).resolves.toEqual({
       ok: false,
-      error: { code: 'FAILED_WORK_FILE_CLEANUP_FAILED', message: 'Cleanup failed' }
+      error: { code: 'FAILED_WORK_FILE_CLEANUP_FAILED', message: 'Failed work files could not be removed.' }
     })
+  })
+
+  it('replaces unknown deletion errors with a generic code and path-free message', async () => {
+    const deps = dependencies()
+    vi.mocked(deps.deleteFailedWork).mockRejectedValue(Object.assign(
+      new Error('SQLITE_BUSY while deleting C:\\Users\\name\\private\\failed-1'),
+      { code: 'SQLITE_BUSY' }
+    ))
+    registerIpcHandlers(deps)
+
+    const result = await handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, 'failed-1')
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: 'WORK_DELETE_FAILED', message: 'Failed work could not be deleted.' }
+    })
+    expect(JSON.stringify(result)).not.toContain('C:\\Users')
+    expect(JSON.stringify(result)).not.toContain('SQLITE')
   })
 })

@@ -132,8 +132,19 @@ function codedError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code, retryable: false })
 }
 
+const SAFE_DELETE_ERRORS: Record<string, string> = {
+  INVALID_WORK_DELETE: 'A work id is required.',
+  FAILED_WORK_NOT_FOUND: 'The failed work was not found.',
+  WORK_DELETE_NOT_ALLOWED: 'Only failed work can be deleted.',
+  FAILED_WORK_FILE_CLEANUP_FAILED: 'Failed work files could not be removed.'
+}
+
 function sanitizeDeleteError(error: unknown): { code: string; message: string } {
-  const value = error instanceof Error ? error : new Error('Failed work could not be deleted.')
-  const code = 'code' in value && typeof value.code === 'string' ? value.code : 'WORK_DELETE_FAILED'
-  return { code, message: value.message }
+  const code = error instanceof Error && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : ''
+  const message = SAFE_DELETE_ERRORS[code]
+  return message
+    ? { code, message }
+    : { code: 'WORK_DELETE_FAILED', message: 'Failed work could not be deleted.' }
 }
