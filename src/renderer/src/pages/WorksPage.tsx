@@ -217,6 +217,7 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
     setDeleteError('')
     try {
       await window.desktopApi.deleteFailedWork(work.id)
+      if (!mountedRef.current) return
       setAllWorks((current) => current.filter((item) => item.id !== work.id))
       setPendingDelete(null)
       setMessage('失败任务已删除。')
@@ -225,12 +226,12 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
         focusRestoreFrameRef.current = null
         worksAreaRef.current?.focus()
       })
-      await refreshWorks()
+      void refreshWorks()
     } catch {
-      setDeleteError('删除失败，请稍后重试。')
+      if (mountedRef.current) setDeleteError('删除失败，请稍后重试。')
     } finally {
       deleteRunningRef.current = false
-      setDeleting(false)
+      if (mountedRef.current) setDeleting(false)
     }
   }
 

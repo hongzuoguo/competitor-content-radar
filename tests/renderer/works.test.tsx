@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../src/preload'
 import type { WorkListItem } from '../../src/shared/ipc-contract'
@@ -167,6 +167,37 @@ describe('work analysis library', () => {
     expect(screen.getByRole('dialog', { name: '删除失败任务？' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(desktopApi.deleteFailedWork).toHaveBeenCalledTimes(2))
+  })
+
+  it('allows another failed deletion while the success refresh is still pending', async () => {
+    const anotherFailed = { ...failed, id: 'work-failed-2', title: '另一个失败样片' }
+    desktopApi.listWorks = vi.fn()
+      .mockResolvedValueOnce([failed, anotherFailed])
+      .mockReturnValueOnce(new Promise(() => undefined))
+    render(<WorksPage />)
+    fireEvent.click(await screen.findByRole('button', { name: '删除失败任务：失败样片' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除失败任务？' })).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: '删除失败任务：另一个失败样片' }))
+    expect(screen.getByRole('button', { name: '取消' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '删除失败任务？' })).not.toBeInTheDocument()
+  })
+
+  it('does not update state, refresh, or schedule focus after an in-flight deletion unmounts', async () => {
+    const frames = controlAnimationFrames()
+    let resolveDelete!: () => void
+    desktopApi.listWorks = vi.fn().mockResolvedValue([failed])
+    desktopApi.deleteFailedWork = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveDelete = resolve }))
+    const view = render(<WorksPage />)
+    fireEvent.click(await screen.findByRole('button', { name: '删除失败任务：失败样片' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    view.unmount()
+
+    await act(async () => { resolveDelete() })
+    expect(desktopApi.listWorks).toHaveBeenCalledTimes(1)
+    expect(frames.pending()).toBe(0)
   })
 
   it('coalesces burst events into one trailing refresh and ends on the newest state', async () => {
