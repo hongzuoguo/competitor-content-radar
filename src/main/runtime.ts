@@ -6,7 +6,7 @@ import { normalizeCreatorUrl, selectBaselineWorks, selectRecentWorks } from '../
 import { AppRepositories, type AnalysisRecord, type RunRecord } from '../services/database/repositories'
 import type { AppDatabase } from '../services/database/database'
 import type { CreatorView, DashboardData, PublicSettings, WorkDetail, WorkListItem } from '../shared/ipc-contract'
-import type { AnalysisResult } from '../services/ai/analysis-schema'
+import { AnalysisSchema } from '../services/ai/analysis-schema'
 import { isImportRetryable, type ImportRequest, type ImportService, type ImportStartResult } from '../services/import/import-service'
 
 export interface ProcessedWork {
@@ -154,6 +154,7 @@ export class DesktopRuntime {
     if (!listItem) return null
     const artifact = this.repositories.artifacts.get(id)
     const analysis = this.repositories.analyses.get(id)
+    const parsedAnalysis = analysis ? AnalysisSchema.safeParse(analysis.result) : null
     return {
       ...listItem,
       originalUrl: work.originalUrl,
@@ -161,7 +162,7 @@ export class DesktopRuntime {
       shares: work.metrics.shares,
       collects: work.metrics.collects,
       transcript: analysis?.transcript ?? artifact?.transcript ?? null,
-      analysis: analysis ? analysis.result as AnalysisResult : null,
+      analysis: parsedAnalysis?.success ? parsedAnalysis.data : null,
       analysisProvider: analysis?.provider ?? null,
       analyzedAt: analysis?.createdAt ?? null
     }
@@ -298,6 +299,7 @@ export class DesktopRuntime {
                 createdAt: new Date().toISOString()
               }
               this.repositories.analyses.save(analysis)
+              this.emitWorkStateChanged(work.id)
               analyzedCount += 1
             } catch (error) {
               partial = true

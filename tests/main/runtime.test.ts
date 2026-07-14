@@ -396,7 +396,7 @@ describe('desktop runtime assembly', () => {
       topicAngle: 'angle', openingHook: { quote: 'quote', type: 'type', mechanism: 'mechanism' },
       structure: ['one'], viralPoints: ['point'], interactionGuidance: 'guide', highlights: ['highlight'],
       reusablePatterns: ['pattern'], differentiatedSuggestions: { angles: [], titles: [], openings: [], risks: [] },
-      referenceValueScore: 91, referenceValueReason: 'reason'
+      referenceValueScore: 91, referenceValueReason: 'reason', untrustedExtra: 'must not cross IPC'
     }
     repositories.analyses.save({ workId: 'detail-1', transcript: 'analysis transcript', result, provider: 'deepseek', model: 'chat', promptVersion: 'v1', tokenUsage: null, createdAt: '2026-01-03T00:00:00.000Z' })
     repositories.artifacts.save({ workId: 'detail-1', wavPath: 'detail.wav', transcript: 'artifact transcript', existingWorkId: null, updatedAt: '2026-01-02T12:00:00.000Z' })
@@ -405,7 +405,23 @@ describe('desktop runtime assembly', () => {
     await expect(runtime.getWork('detail-1')).resolves.toEqual(expect.objectContaining({
       id: 'detail-1', creatorName: 'Alice', originalUrl: 'https://www.douyin.com/video/detail-1',
       likes: 12000, comments: 34, shares: 56, collects: 78,
-      transcript: 'analysis transcript', analysis: result, analysisProvider: 'deepseek', analyzedAt: '2026-01-03T00:00:00.000Z'
+      transcript: 'analysis transcript', analysis: {
+        topicAngle: 'angle', openingHook: { quote: 'quote', type: 'type', mechanism: 'mechanism' },
+        structure: ['one'], viralPoints: ['point'], interactionGuidance: 'guide', highlights: ['highlight'],
+        reusablePatterns: ['pattern'], differentiatedSuggestions: { angles: [], titles: [], openings: [], risks: [] },
+        referenceValueScore: 91, referenceValueReason: 'reason'
+      }, analysisProvider: 'deepseek', analyzedAt: '2026-01-03T00:00:00.000Z'
+    }))
+  })
+
+  it('keeps analysis metadata but returns null for malformed persisted analysis', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.works.upsert({ id: 'malformed-1', creatorId: null, platformWorkId: null, sourceType: 'local_file', sourceKey: 'sha256:malformed', mediaPath: 'malformed.mp4', title: 'Malformed', publishedAt: '2026-01-02T00:00:00.000Z', originalUrl: null, downloadUrl: null, metrics: { likes: 0, comments: 0, shares: 0, collects: 0 } })
+    repositories.analyses.save({ workId: 'malformed-1', transcript: 'safe transcript', result: { topicAngle: 42 }, provider: 'qwen', model: 'chat', promptVersion: 'v1', tokenUsage: null, createdAt: '2026-01-03T00:00:00.000Z' })
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
+
+    await expect(runtime.getWork('malformed-1')).resolves.toEqual(expect.objectContaining({
+      transcript: 'safe transcript', analysis: null, analysisProvider: 'qwen', analyzedAt: '2026-01-03T00:00:00.000Z'
     }))
   })
 
@@ -415,28 +431,34 @@ describe('desktop runtime assembly', () => {
     await expect(runtime.getWork('missing')).resolves.toBeNull()
   })
 
-  it('notifies live work listeners after each monitored work and snapshot are persisted', async () => {
+  it('notifies live work listeners after monitored discovery and analysis persistence', async () => {
     const discovered: Work = {
       id: 'monitored-1', creatorId: '', platformWorkId: '1', sourceType: 'douyin_monitor', sourceKey: 'douyin:monitored-1',
       mediaPath: null, title: 'Monitored', publishedAt: new Date().toISOString(), originalUrl: 'https://www.douyin.com/video/1',
       downloadUrl: null, metrics: { likes: 1, comments: 2, shares: 3, collects: 4 }
     }
     const runtime = new DesktopRuntime(database, {
-      discover: vi.fn(async (creatorId: string) => [{ ...discovered, creatorId }]), processWork: vi.fn(), login: vi.fn()
+      discover: vi.fn(async (creatorId: string) => [{ ...discovered, creatorId }]),
+      processWork: vi.fn(async () => ({ transcript: 'done', result: {}, provider: 'deepseek', model: 'chat', promptVersion: 'v1', tokenUsage: null })),
+      login: vi.fn()
     })
+    const persistedStates: boolean[] = []
     const listener = vi.fn(() => {
       const repositories = new AppRepositories(database.connection)
       expect(repositories.works.get('monitored-1')).not.toBeNull()
       expect(repositories.snapshots.listByWork('monitored-1')).toHaveLength(1)
+      persistedStates.push(repositories.analyses.get('monitored-1') !== null)
     })
     runtime.onWorkStateChanged(() => { throw new Error('listener failed') })
     runtime.onWorkStateChanged(listener)
     await runtime.addCreator('https://www.douyin.com/user/live-monitor')
+    await runtime.saveSettings({ providerId: 'deepseek', modelId: 'chat' })
 
     await runtime.runNow('daily')
     await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
 
-    expect(listener).toHaveBeenCalledWith('monitored-1')
+    expect(listener.mock.calls).toEqual([['monitored-1'], ['monitored-1']])
+    expect(persistedStates).toEqual([false, true])
   })
 
   it('reads a real persisted import failure without losing its stable code or creator id', async () => {
