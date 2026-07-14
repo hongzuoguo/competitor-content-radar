@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, net } from 'electron'
 import log from 'electron-log/main'
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
@@ -22,6 +22,7 @@ import type { PublicSettings } from '../shared/ipc-contract'
 import { ImportService, type ImportNotificationPort, type WorkProcessor } from '../services/import/import-service'
 import { ingestLocalFile } from '../services/import/local-file-source'
 import { resolveDouyinVideo } from '../services/import/douyin-video-source'
+import { resolveDouyinCreatorUrl } from '../services/douyin/creator-url'
 
 interface ModelManifest {
   id: string
@@ -132,6 +133,9 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
     discover: (creatorId, profileUrl) => douyin.captureCreatorWorks(creatorId, profileUrl),
     processWork,
     login: () => douyin.openLoginWindow(),
+    resolveCreatorInput: (input) => resolveDouyinCreatorUrl(input, (url, requestOptions) => {
+      return net.fetch(url, requestOptions)
+    }),
     saveApiKey: (providerId, apiKey) => secrets.set(`ai.${providerId}`, apiKey),
     report: (level, message, detail) => log[level](message, detail ?? '')
   }

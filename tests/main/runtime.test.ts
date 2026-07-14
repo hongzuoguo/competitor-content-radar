@@ -22,6 +22,20 @@ describe('desktop runtime assembly', () => {
     await expect(runtime.addCreator('https://www.douyin.com/user/overflow')).rejects.toThrow('CREATOR_LIMIT_REACHED')
   })
 
+  it('resolves a creator card through the runtime port before saving it', async () => {
+    const resolveCreatorInput = vi.fn(async () => 'https://www.douyin.com/user/resolved-user')
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn(), resolveCreatorInput
+    })
+
+    await runtime.addCreator('复制这条消息 https://v.douyin.com/short-card/')
+
+    expect(resolveCreatorInput).toHaveBeenCalledWith('复制这条消息 https://v.douyin.com/short-card/')
+    expect(await runtime.listCreators()).toEqual([
+      expect.objectContaining({ profileUrl: 'https://www.douyin.com/user/resolved-user' })
+    ])
+  })
+
   it('discovers, stores and processes recent works when run now is accepted', async () => {
     const work: Work = {
       id: 'douyin:7658', creatorId: '', platformWorkId: '7658', title: '测试作品',

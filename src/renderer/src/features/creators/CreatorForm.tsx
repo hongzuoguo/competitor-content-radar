@@ -14,8 +14,8 @@ export function CreatorForm({
 
   function submit(event: React.FormEvent): void {
     event.preventDefault()
-    if (!/^https:\/\/(www\.)?douyin\.com\/user\/[^/?]+/.test(url.trim())) {
-      setError('请粘贴完整的抖音博主主页地址')
+    if (!url.trim()) {
+      setError('请粘贴抖音博主主页链接或名片分享消息')
       return
     }
     onAdd(url.trim())
@@ -33,8 +33,8 @@ export function CreatorForm({
             disabled={disabled}
             id="creator-url"
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://www.douyin.com/user/..."
-            type="url"
+            placeholder="粘贴博主名片分享消息或主页链接"
+            type="text"
             value={url}
           />
           <Button disabled={disabled} icon={<Plus size={16} />} type="submit">添加博主</Button>

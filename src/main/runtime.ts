@@ -21,6 +21,7 @@ export interface RuntimePorts {
   discover(creatorId: string, profileUrl: string): Promise<Work[]>
   processWork(work: Work, settings: PublicSettings): Promise<ProcessedWork>
   login(): Promise<void>
+  resolveCreatorInput?(input: string): Promise<string>
   saveApiKey?(providerId: string, apiKey: string): Promise<void> | void
   report?(level: 'info' | 'error', message: string, detail?: unknown): void
 }
@@ -137,7 +138,10 @@ export class DesktopRuntime {
   async addCreator(input: string): Promise<CreatorView> {
     const creators = this.repositories.creators.list()
     if (creators.length >= 10) throw new Error('CREATOR_LIMIT_REACHED')
-    const profileUrl = normalizeCreatorUrl(input)
+    const resolvedInput = this.ports.resolveCreatorInput
+      ? await this.ports.resolveCreatorInput(input)
+      : input
+    const profileUrl = normalizeCreatorUrl(resolvedInput)
     const handle = profileUrl.split('/').at(-1) ?? '新博主'
     const creator = {
       id: randomUUID(),

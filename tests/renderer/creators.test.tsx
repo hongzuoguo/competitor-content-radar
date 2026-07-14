@@ -12,6 +12,17 @@ describe('creator management', () => {
     expect(screen.getByText('等待首次采集')).toBeInTheDocument()
   })
 
+  it('accepts a complete Douyin creator card message', () => {
+    render(<CreatorsPage initialCreators={[]} />)
+    const input = screen.getByLabelText('抖音博主主页')
+    expect(input).toHaveAttribute('type', 'text')
+    fireEvent.change(input, {
+      target: { value: '长按复制此条消息 https://v.douyin.com/jI79SWk4jwA/ 2@9.com' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '添加博主' }))
+    expect(screen.getByText('等待首次采集')).toBeInTheDocument()
+  })
+
   it('blocks additions after ten creators', () => {
     const creators = Array.from({ length: 10 }, (_, index) => ({
       id: String(index), name: `博主 ${index + 1}`, profileUrl: `https://www.douyin.com/user/${index}`,
