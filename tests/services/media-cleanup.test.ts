@@ -47,6 +47,13 @@ describe('local media handling', () => {
     expect(resolveFfmpegBinaryPath(configuredPath, (path) => path === unpackedPath)).toBe(unpackedPath)
   })
 
+  it('prefers the unpacked ffmpeg path when Electron reports both packaged paths exist', () => {
+    const configuredPath = 'C:\\app\\resources\\app.asar\\node_modules\\ffmpeg-static\\ffmpeg.exe'
+    const unpackedPath = 'C:\\app\\resources\\app.asar.unpacked\\node_modules\\ffmpeg-static\\ffmpeg.exe'
+
+    expect(resolveFfmpegBinaryPath(configuredPath, () => true)).toBe(unpackedPath)
+  })
+
   it('reports a stable error when neither packaged ffmpeg path exists', () => {
     const configuredPath = 'C:\\app\\resources\\app.asar\\node_modules\\ffmpeg-static\\ffmpeg.exe'
     const checkedPaths: string[] = []
@@ -56,8 +63,8 @@ describe('local media handling', () => {
       return false
     })).toThrow(expect.objectContaining({ message: 'FFMPEG_BINARY_MISSING', code: 'FFMPEG_BINARY_MISSING' }))
     expect(checkedPaths).toEqual([
-      configuredPath,
-      'C:\\app\\resources\\app.asar.unpacked\\node_modules\\ffmpeg-static\\ffmpeg.exe'
+      'C:\\app\\resources\\app.asar.unpacked\\node_modules\\ffmpeg-static\\ffmpeg.exe',
+      configuredPath
     ])
   })
 

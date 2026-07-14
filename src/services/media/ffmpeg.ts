@@ -8,13 +8,12 @@ export function resolveFfmpegBinaryPath(
   configuredPath: string | null,
   exists: PathExists = existsSync
 ): string {
-  if (typeof configuredPath === 'string' && exists(configuredPath)) return configuredPath
-
   const unpackedPath = configuredPath?.replace(
     /(^|[\\/])app\.asar(?=[\\/])/,
     '$1app.asar.unpacked'
   )
   if (unpackedPath && unpackedPath !== configuredPath && exists(unpackedPath)) return unpackedPath
+  if (typeof configuredPath === 'string' && exists(configuredPath)) return configuredPath
 
   const cause = Object.assign(new Error('Configured ffmpeg binary was not found.'), {
     configuredPath,

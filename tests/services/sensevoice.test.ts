@@ -30,6 +30,21 @@ describe('SenseVoice sherpa module resolution', () => {
     expect(resolved.readWave).toBe(readWave)
   })
 
+  it('accepts a class-shaped recognizer wrapped by default', () => {
+    const createAsync = vi.fn()
+    const readWave = vi.fn()
+    class OfflineRecognizer {
+      static createAsync = createAsync
+    }
+
+    const resolved = resolveSherpaModule({
+      default: { OfflineRecognizer, readWave }
+    })
+
+    expect(resolved.OfflineRecognizer.createAsync).toBe(createAsync)
+    expect(resolved.readWave).toBe(readWave)
+  })
+
   it.each([
     { OfflineRecognizer: { createAsync: 'not a function' }, readWave: vi.fn() },
     { OfflineRecognizer: { createAsync: vi.fn() }, readWave: undefined }

@@ -66,8 +66,12 @@ export async function transcribeWithSenseVoice(
 }
 
 function asSherpaModule(value: unknown): SherpaModule | null {
-  if (!isRecord(value) || !isRecord(value.OfflineRecognizer)) return null
-  if (typeof value.OfflineRecognizer.createAsync !== 'function' || typeof value.readWave !== 'function') {
+  if (!isRecord(value)) return null
+  const recognizer = value.OfflineRecognizer
+  if ((typeof recognizer !== 'object' || recognizer === null) && typeof recognizer !== 'function') {
+    return null
+  }
+  if (typeof (recognizer as { createAsync?: unknown }).createAsync !== 'function' || typeof value.readWave !== 'function') {
     return null
   }
   return value as unknown as SherpaModule
