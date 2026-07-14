@@ -126,4 +126,15 @@ describe('import IPC', () => {
     expect(JSON.stringify(result)).not.toContain('C:\\Users')
     expect(JSON.stringify(result)).not.toContain('SQLITE')
   })
+
+  it.each(['toString', 'constructor', '__proto__'])('treats prototype key %s as an unknown deletion code', async (code) => {
+    const deps = dependencies()
+    vi.mocked(deps.deleteFailedWork).mockRejectedValue(Object.assign(new Error('internal detail'), { code }))
+    registerIpcHandlers(deps)
+
+    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, 'failed-1')).resolves.toEqual({
+      ok: false,
+      error: { code: 'WORK_DELETE_FAILED', message: 'Failed work could not be deleted.' }
+    })
+  })
 })
