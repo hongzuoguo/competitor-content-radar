@@ -93,7 +93,11 @@ describe('SenseVoice model manager', () => {
         { url: 'https://example.test/model.bin', size: 5, sha256: '0'.repeat(64) },
         destination
       )
-    ).rejects.toThrow('MODEL_CHECKSUM_MISMATCH')
+    ).rejects.toMatchObject({
+      code: 'MODEL_PREPARATION_FAILED',
+      message: 'MODEL_CHECKSUM_MISMATCH',
+      cause: expect.any(Error)
+    })
   })
 
   it('retries a transport failure while downloading a small tokens file', async () => {
@@ -157,8 +161,9 @@ describe('SenseVoice model manager', () => {
     directories.push(directory)
     const destination = join(directory, 'tokens.txt')
     const cancel = vi.fn().mockResolvedValue(undefined)
+    const failure = new Error('read failed')
     const body = {
-      getReader: () => ({ read: vi.fn().mockRejectedValue(new Error('read failed')), cancel })
+      getReader: () => ({ read: vi.fn().mockRejectedValue(failure), cancel })
     }
     const response = { ok: true, status: 200, body } as unknown as Response
     const manager = new ModelManager(vi.fn<typeof fetch>().mockResolvedValue(response))
@@ -166,7 +171,7 @@ describe('SenseVoice model manager', () => {
     await expect(manager.ensureFile(
       { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
       destination
-    )).rejects.toThrow('read failed')
+    )).rejects.toMatchObject({ code: 'MODEL_PREPARATION_FAILED', message: 'read failed', cause: failure })
     expect(cancel).toHaveBeenCalledTimes(1)
   })
 })

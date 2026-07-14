@@ -98,4 +98,36 @@ describe('resumable processing pipeline', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+
+  it('propagates a non-network model checksum failure into the job record', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-pipeline-model-'))
+    const recordFailure = vi.fn()
+    const manager = new ModelManager(async () => new Response('bad!', { status: 200 }))
+    const pipeline = new ProcessingPipeline(
+      { getStage: async () => 'audio_extracted', saveStage: vi.fn(), recordFailure },
+      {
+        download: vi.fn(),
+        extractAudio: vi.fn(),
+        transcribe: vi.fn(() => manager.ensureFile(
+          { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
+          join(directory, 'tokens.txt')
+        )),
+        analyze: vi.fn(),
+        sync: vi.fn()
+      }
+    )
+
+    try {
+      await expect(pipeline.process('work-2')).rejects.toMatchObject({
+        code: 'MODEL_PREPARATION_FAILED',
+        message: 'MODEL_CHECKSUM_MISMATCH'
+      })
+      expect(recordFailure).toHaveBeenCalledWith(
+        'work-2',
+        expect.objectContaining({ code: 'MODEL_PREPARATION_FAILED', message: 'MODEL_CHECKSUM_MISMATCH' })
+      )
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 })

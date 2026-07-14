@@ -19,8 +19,8 @@ async function sha256(path: string): Promise<string> {
 class ModelPreparationError extends Error {
   readonly code = 'MODEL_PREPARATION_FAILED'
 
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, cause: unknown) {
+    super(message, { cause })
     this.name = 'ModelPreparationError'
   }
 }
@@ -29,6 +29,16 @@ export class ModelManager {
   constructor(private readonly fetchImplementation: typeof fetch = fetch) {}
 
   async ensureFile(manifest: ModelFileManifest, destination: string): Promise<void> {
+    try {
+      await this.prepareFile(manifest, destination)
+    } catch (error) {
+      if (error instanceof ModelPreparationError) throw error
+      const cause = error instanceof Error ? error : new Error(String(error))
+      throw new ModelPreparationError(cause.message, cause)
+    }
+  }
+
+  private async prepareFile(manifest: ModelFileManifest, destination: string): Promise<void> {
     if (
       existsSync(destination) &&
       statSync(destination).size === manifest.size &&
@@ -59,12 +69,13 @@ export class ModelManager {
       response = await createTransportRetryFetcher(this.fetchImplementation)(manifest.url, {
         headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined
       })
-    } catch {
-      throw new ModelPreparationError('MODEL_DOWNLOAD_TRANSPORT_FAILED')
+    } catch (error) {
+      throw new ModelPreparationError('MODEL_DOWNLOAD_TRANSPORT_FAILED', error)
     }
     if (!response.ok || !response.body) {
       await response.body?.cancel().catch(() => undefined)
-      throw new ModelPreparationError(`MODEL_DOWNLOAD_HTTP_${response.status}`)
+      const cause = new Error(`MODEL_DOWNLOAD_HTTP_${response.status}`)
+      throw new ModelPreparationError(cause.message, cause)
     }
 
     const append = offset > 0 && response.status === 206
