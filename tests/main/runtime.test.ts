@@ -84,6 +84,10 @@ describe('desktop runtime assembly', () => {
 
     finishDiscovery([])
     await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    await runtime.runNow('catch_up')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+    expect(discover).toHaveBeenCalledWith(creator.id, creator.profileUrl)
   })
 
   it('records a first-capture startup failure without rejecting creator creation', async () => {
@@ -98,8 +102,72 @@ describe('desktop runtime assembly', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(report).toHaveBeenCalledWith('error', 'First capture start failed', {
-      code: 'FIRST_CAPTURE_START_FAILED', creatorId: creator.id, error: expect.any(Error)
+      code: 'FIRST_CAPTURE_START_FAILED', creatorId: creator.id
     })
+  })
+
+  it('contains reporting failures from the fire-and-forget first capture chain', async () => {
+    const report = vi.fn(() => { throw new Error('logger unavailable') })
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn(), report
+    })
+    vi.spyOn(runtime, 'runNow').mockRejectedValueOnce(new Error('private path C:\\secret'))
+
+    await expect(runtime.addCreator('https://www.douyin.com/user/safe-reporting')).resolves.toMatchObject({
+      profileUrl: 'https://www.douyin.com/user/safe-reporting'
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(report).toHaveBeenCalledWith('error', 'First capture start failed', expect.objectContaining({
+      code: 'FIRST_CAPTURE_START_FAILED'
+    }))
+  })
+
+  it('lets an immediate manual run replace the pending first capture without a duplicate run', async () => {
+    const discover = vi.fn(async () => [])
+    const runtime = new DesktopRuntime(database, {
+      discover, processWork: vi.fn(), login: vi.fn()
+    })
+    const creator = await runtime.addCreator('https://www.douyin.com/user/manual-replaces')
+
+    await runtime.runNow('manual')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(discover).toHaveBeenCalledTimes(1)
+    expect(discover).toHaveBeenCalledWith(creator.id, creator.profileUrl)
+  })
+
+  it('coalesces consecutive creator additions into one first run that covers both creators', async () => {
+    const discover = vi.fn(async () => [])
+    const runtime = new DesktopRuntime(database, {
+      discover, processWork: vi.fn(), login: vi.fn()
+    })
+    const first = await runtime.addCreator('https://www.douyin.com/user/coalesced-first')
+    const second = await runtime.addCreator('https://www.douyin.com/user/coalesced-second')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(discover).toHaveBeenCalledTimes(2)
+    expect(discover).toHaveBeenCalledWith(first.id, first.profileUrl)
+    expect(discover).toHaveBeenCalledWith(second.id, second.profileUrl)
+    const runCount = database.connection.prepare('SELECT COUNT(*) AS count FROM runs').get() as { count: number }
+    expect(runCount.count).toBe(1)
+  })
+
+  it('cancels a pending first capture before the database closes', async () => {
+    const discover = vi.fn(async () => [])
+    const runtime = new DesktopRuntime(database, {
+      discover, processWork: vi.fn(), login: vi.fn()
+    })
+    await runtime.addCreator('https://www.douyin.com/user/shutdown')
+
+    runtime.shutdown()
+    database.close()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(discover).not.toHaveBeenCalled()
   })
 
   it('discovers, stores and processes recent works when run now is accepted', async () => {

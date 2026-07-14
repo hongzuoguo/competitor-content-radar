@@ -42,6 +42,7 @@ export class DesktopRuntime {
   private readonly workStateListeners = new Set<(workId: string) => void>()
   private unsubscribeImportEvents: (() => void) | null = null
   private firstCaptureTimer: ReturnType<typeof setTimeout> | null = null
+  private shuttingDown = false
   private lastRunAt: string | null = null
   private runState: DashboardData['run'] = {
     status: 'idle',
@@ -203,24 +204,45 @@ export class DesktopRuntime {
   }
 
   private scheduleFirstCapture(creatorId: string): void {
+    if (this.shuttingDown) return
     if (this.firstCaptureTimer) clearTimeout(this.firstCaptureTimer)
     const timer = setTimeout(() => {
       if (this.firstCaptureTimer !== timer) return
       this.firstCaptureTimer = null
-      if (!this.database.connection.open) return
+      if (this.shuttingDown || !this.database.connection.open) return
       void this.runNow('manual').then((result) => {
         if (!result.accepted) {
-          this.ports.report?.('info', 'First capture deferred', {
-            code: 'FIRST_CAPTURE_DEFERRED', creatorId, reason: result.reason
+          this.bestEffortReport('info', 'First capture deferred', {
+            code: 'FIRST_CAPTURE_DEFERRED', creatorId
           })
         }
-      }).catch((error) => {
-        this.ports.report?.('error', 'First capture start failed', {
-          code: 'FIRST_CAPTURE_START_FAILED', creatorId, error
+      }).catch(() => {
+        this.bestEffortReport('error', 'First capture start failed', {
+          code: 'FIRST_CAPTURE_START_FAILED', creatorId
         })
       })
     }, 0)
     this.firstCaptureTimer = timer
+  }
+
+  private bestEffortReport(
+    level: 'info' | 'error',
+    message: string,
+    detail: { code: string; creatorId: string }
+  ): void {
+    try {
+      this.ports.report?.(level, message, detail)
+    } catch {
+      // Reporting must never escape a fire-and-forget task.
+    }
+  }
+
+  shutdown(): void {
+    this.shuttingDown = true
+    if (this.firstCaptureTimer) {
+      clearTimeout(this.firstCaptureTimer)
+      this.firstCaptureTimer = null
+    }
   }
 
   async toggleCreator(id: string, enabled: boolean): Promise<void> {
@@ -258,6 +280,7 @@ export class DesktopRuntime {
       clearTimeout(this.firstCaptureTimer)
       this.firstCaptureTimer = null
     }
+    if (this.shuttingDown) return { accepted: false, reason: '应用正在退出' }
     if (this.running) return { accepted: false, reason: '已有任务正在运行' }
     const settings = await this.getSettings()
     const creators = this.repositories.creators.list().filter((creator) => creator.enabled)

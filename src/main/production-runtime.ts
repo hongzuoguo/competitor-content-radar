@@ -157,6 +157,7 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
   return {
     runtime,
     async close() {
+      runtime.shutdown()
       await imports.shutdown()
       if (!runtime.isBusinessIdle()) {
         await new Promise<void>((resolve) => {
