@@ -534,6 +534,15 @@
   min-width: 82px;
 }
 
+.works-focus-region {
+  outline: 0;
+}
+
+.works-focus-region:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
 .work-row {
   outline: 0;
   transition: background var(--duration-fast) ease;

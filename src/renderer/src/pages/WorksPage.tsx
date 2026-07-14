@@ -31,6 +31,7 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const deleteDialogRef = useRef<HTMLDialogElement>(null)
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const worksAreaRef = useRef<HTMLDivElement>(null)
   const deleteRunningRef = useRef(false)
   const mountedRef = useRef(false)
   const pendingImportIdRef = useRef<string | undefined>(undefined)
@@ -219,6 +220,11 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
       setAllWorks((current) => current.filter((item) => item.id !== work.id))
       setPendingDelete(null)
       setMessage('失败任务已删除。')
+      cancelFocusRestore()
+      focusRestoreFrameRef.current = requestAnimationFrame(() => {
+        focusRestoreFrameRef.current = null
+        worksAreaRef.current?.focus()
+      })
       await refreshWorks()
     } catch {
       setDeleteError('删除失败，请稍后重试。')
@@ -245,18 +251,20 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
         <label className="search-field"><Search size={15} aria-hidden="true" /><span className="visually-hidden">搜索作品</span><input aria-label="搜索作品" onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或博主" value={query} /></label>
       </div>
 
-      {loadState === 'loading' ? <WorksLoading /> : null}
-      {loadState === 'failed' ? <div className="works-state" role="alert"><strong>作品加载失败</strong><span>无法读取本地作品记录，请稍后重试。</span><Button onClick={() => void refreshWorks(true)} variant="secondary">重新加载</Button></div> : null}
-      {loadState === 'ready' && nonDuplicateWorks.length === 0 ? <div className="works-state"><strong>还没有作品</strong><span>导入本地视频或单条抖音作品，完成后会在这里显示拆解结果。</span><Button onClick={() => openImport()}>导入第一个作品</Button></div> : null}
-      {loadState === 'ready' && nonDuplicateWorks.length > 0 && works.length === 0 ? <div className="works-state"><strong>没有符合条件的作品</strong><span>可以更换筛选条件或搜索关键词。</span></div> : null}
-      {loadState === 'ready' && works.length > 0 ? (
-        <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断与进度</th><th><span className="visually-hidden">操作</span></th></tr></thead><tbody>{works.map((work) => <WorkStatusRow focusOnRender={focusedWorkId === work.id} key={work.id} onDeleteRequest={requestDelete} onFocusConsumed={(workId) => setFocusedWorkId((current) => current === workId ? undefined : current)} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} work={work} />)}</tbody></table></div>
-      ) : null}
+      <div aria-label="作品表格区域" className="works-focus-region" ref={worksAreaRef} role="region" tabIndex={-1}>
+        {loadState === 'loading' ? <WorksLoading /> : null}
+        {loadState === 'failed' ? <div className="works-state" role="alert"><strong>作品加载失败</strong><span>无法读取本地作品记录，请稍后重试。</span><Button onClick={() => void refreshWorks(true)} variant="secondary">重新加载</Button></div> : null}
+        {loadState === 'ready' && nonDuplicateWorks.length === 0 ? <div className="works-state"><strong>还没有作品</strong><span>导入本地视频或单条抖音作品，完成后会在这里显示拆解结果。</span><Button onClick={() => openImport()}>导入第一个作品</Button></div> : null}
+        {loadState === 'ready' && nonDuplicateWorks.length > 0 && works.length === 0 ? <div className="works-state"><strong>没有符合条件的作品</strong><span>可以更换筛选条件或搜索关键词。</span></div> : null}
+        {loadState === 'ready' && works.length > 0 ? (
+          <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断与进度</th><th><span className="visually-hidden">操作</span></th></tr></thead><tbody>{works.map((work) => <WorkStatusRow focusOnRender={focusedWorkId === work.id} key={work.id} onDeleteRequest={requestDelete} onFocusConsumed={(workId) => setFocusedWorkId((current) => current === workId ? undefined : current)} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} work={work} />)}</tbody></table></div>
+        ) : null}
+      </div>
       {importOpen ? <ImportWorkDialog creatorLoadState={creatorLoadState} creators={creators} initialCreatorId={initialCreatorId} initialLocalPath={initialLocalPath} onAccepted={acceptImport} onClose={closeImport} onRetryCreators={() => void loadCreators()} /> : null}
       {pendingDelete ? (
         <dialog aria-labelledby="delete-work-title" className="confirm-dialog" onCancel={(event) => { event.preventDefault(); cancelDelete() }} ref={deleteDialogRef}>
           <h2 id="delete-work-title">删除失败任务？</h2>
-          <p>“{pendingDelete.title}”的任务记录和本地临时文件会被永久删除，此操作无法撤销。</p>
+          <p>将删除这条本地任务记录和临时文件，不会影响抖音原作品。此操作无法撤销。</p>
           {deleteError ? <p className="confirm-dialog__error" role="alert">{deleteError}</p> : null}
           <div className="confirm-dialog__actions">
             <Button autoFocus disabled={deleting} onClick={cancelDelete} variant="secondary">取消</Button>

@@ -117,6 +117,7 @@ describe('work analysis library', () => {
     expect(screen.queryByRole('button', { name: '删除失败任务：为什么你的内容看起来很努力，却没有增长' })).not.toBeInTheDocument()
     fireEvent.click(deleteButton)
     expect(screen.getByRole('dialog', { name: '删除失败任务？' })).toBeInTheDocument()
+    expect(screen.getByText('将删除这条本地任务记录和临时文件，不会影响抖音原作品。此操作无法撤销。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(desktopApi.deleteFailedWork).not.toHaveBeenCalled()
     frames.flushAll()
@@ -131,6 +132,7 @@ describe('work analysis library', () => {
   })
 
   it('deletes once, disables confirmation while pending, refreshes and announces success', async () => {
+    const frames = controlAnimationFrames()
     let resolveDelete!: () => void
     desktopApi.listWorks = vi.fn().mockResolvedValueOnce([failed]).mockResolvedValueOnce([])
     desktopApi.deleteFailedWork = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveDelete = resolve }))
@@ -148,6 +150,8 @@ describe('work analysis library', () => {
     expect(screen.queryByText('失败样片')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: '删除失败任务？' })).not.toBeInTheDocument()
     expect(desktopApi.listWorks).toHaveBeenCalledTimes(2)
+    frames.flushAll()
+    expect(screen.getByRole('region', { name: '作品表格区域' })).toHaveFocus()
   })
 
   it('keeps a failed deletion open and allows retry', async () => {
