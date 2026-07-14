@@ -254,18 +254,25 @@ export class DesktopRuntime {
   }
 
   async getSettings(): Promise<PublicSettings> {
-    return this.repositories.settings.get<PublicSettings>('app.publicSettings') ?? {
+    const saved = this.repositories.settings.get<PublicSettings>('app.publicSettings')
+    if (saved) {
+      if (saved.dailyTime === '08:00') return saved
+      const migrated = { ...saved, dailyTime: '08:00' }
+      this.repositories.settings.set('app.publicSettings', migrated)
+      return migrated
+    }
+    return {
       dailyTime: '08:00', weeklyTime: '09:30', absoluteLikes: 10_000,
       relativeViralIndex: 150, referenceValueScore: 80, mediaRetentionDays: 7
     }
   }
 
   async saveSettings(settings: Partial<PublicSettings> & { apiKey?: string }): Promise<PublicSettings> {
-    const { apiKey, ...publicSettings } = settings
+    const { apiKey, dailyTime: _ignoredDailyTime, ...publicSettings } = settings
     if (apiKey && publicSettings.providerId) {
       await this.ports.saveApiKey?.(publicSettings.providerId, apiKey)
     }
-    const merged = { ...(await this.getSettings()), ...publicSettings }
+    const merged = { ...(await this.getSettings()), ...publicSettings, dailyTime: '08:00' }
     this.repositories.settings.set('app.publicSettings', merged)
     return merged
   }

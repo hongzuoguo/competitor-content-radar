@@ -32,7 +32,7 @@ export function SetupWizard({
   const [apiKey, setApiKey] = useState('')
   const [creatorUrl, setCreatorUrl] = useState('')
   const [creatorError, setCreatorError] = useState('')
-  const [dailyTime, setDailyTime] = useState('09:00')
+  const dailyTime = '08:00'
   const [weeklyTime, setWeeklyTime] = useState('09:30')
 
   function addCreator(): void {
@@ -82,7 +82,7 @@ export function SetupWizard({
           </> : null}
           {step === 4 ? <>
             <span className="setup-kicker">第 5 步，共 5 步</span><h2>确认自动运行时间</h2><p>每日采集和每周报告只在电脑开机时运行；错过计划后，下次启动会补跑一次。</p>
-            <div className="setup-form-grid"><div className="form-field"><label htmlFor="setup-daily">每日监控</label><input id="setup-daily" onChange={(event) => setDailyTime(event.target.value)} type="time" value={dailyTime} /></div><div className="form-field"><label htmlFor="setup-weekly">周一报告</label><input id="setup-weekly" onChange={(event) => setWeeklyTime(event.target.value)} type="time" value={weeklyTime} /></div></div>
+            <div className="setup-form-grid"><div className="form-field"><label htmlFor="setup-daily">每日监控</label><input disabled id="setup-daily" type="time" value={dailyTime} /></div><div className="form-field"><label htmlFor="setup-weekly">周一报告</label><input id="setup-weekly" onChange={(event) => setWeeklyTime(event.target.value)} type="time" value={weeklyTime} /></div></div>
             <div className="setup-note">“今日重点”默认标准：点赞 ≥ 10,000、相对爆款指数 ≥ 150 或 AI 借鉴评分 ≥ 80。</div>
             <div className="setup-actions"><Button onClick={() => setStep(3)} variant="ghost">上一步</Button><Button icon={<Check size={16} />} onClick={() => void onComplete({ providerId, modelId, apiKey, creatorUrl: creatorUrl.trim(), dailyTime, weeklyTime })}>完成设置</Button></div>
           </> : null}

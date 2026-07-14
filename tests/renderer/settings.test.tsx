@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from '../../src/renderer/src/pages/SettingsPage'
 
 describe('application settings', () => {
@@ -14,5 +14,22 @@ describe('application settings', () => {
   it('keeps the internal transcription engine out of normal settings', () => {
     render(<SettingsPage />)
     expect(screen.queryByText(/SenseVoice|FFmpeg/i)).not.toBeInTheDocument()
+  })
+
+  it('shows daily monitoring as a fixed 08:00 setting', async () => {
+    Object.defineProperty(window, 'desktopApi', {
+      configurable: true,
+      value: { getSettings: vi.fn().mockResolvedValue({ dailyTime: '09:00' }) }
+    })
+
+    render(<SettingsPage />)
+
+    const input = await vi.waitFor(() => {
+      const element = document.querySelector<HTMLInputElement>('#daily-time')
+      expect(element).not.toBeNull()
+      return element!
+    })
+    expect(input).toHaveValue('08:00')
+    expect(input).toBeDisabled()
   })
 })

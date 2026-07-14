@@ -16,6 +16,15 @@ describe('topbar run feedback', () => {
     })
   }
 
+  it('shows the fixed 08:00 daily monitoring time', () => {
+    installDesktopApi(vi.fn().mockResolvedValue({ accepted: true }))
+
+    render(<Topbar />)
+
+    expect(screen.getByText(/08:00/)).toBeVisible()
+    expect(screen.queryByText(/09:00/)).not.toBeInTheDocument()
+  })
+
   it('shows visible confirmation as soon as a run is accepted', async () => {
     installDesktopApi(vi.fn().mockResolvedValue({ accepted: true }))
 

@@ -26,7 +26,7 @@ export function Topbar(): React.JSX.Element {
     <header className="topbar">
       <div className="topbar__status">
         <StatusBadge tone="success">服务正常</StatusBadge>
-        <span className="topbar__next"><Clock3 size={15} aria-hidden="true" />下次运行 09:00</span>
+        <span className="topbar__next"><Clock3 size={15} aria-hidden="true" />下次运行 08:00</span>
         <UpdateStatus />
       </div>
       <div className="topbar__run"><span aria-live="polite" className="topbar__run-message" data-state={runState}>{runMessage}</span><Button disabled={runState === 'running'} icon={<Play size={15} fill="currentColor" />} onClick={() => void runNow()}>{runState === 'running' ? '正在启动' : '立即运行'}</Button></div>

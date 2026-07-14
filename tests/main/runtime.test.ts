@@ -11,6 +11,23 @@ describe('desktop runtime assembly', () => {
   beforeEach(() => { database = new AppDatabase(':memory:') })
   afterEach(() => database.close())
 
+  it('migrates legacy daily monitoring times to the fixed 08:00 schedule', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.settings.set('app.publicSettings', { dailyTime: '09:00', weeklyTime: '09:30' })
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
+
+    await expect(runtime.getSettings()).resolves.toMatchObject({ dailyTime: '08:00' })
+    expect(repositories.settings.get<{ dailyTime: string }>('app.publicSettings')).toMatchObject({ dailyTime: '08:00' })
+  })
+
+  it('does not allow settings writes to change the fixed 08:00 schedule', async () => {
+    const repositories = new AppRepositories(database.connection)
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
+
+    await expect(runtime.saveSettings({ dailyTime: '10:30' })).resolves.toMatchObject({ dailyTime: '08:00' })
+    expect(repositories.settings.get<{ dailyTime: string }>('app.publicSettings')).toMatchObject({ dailyTime: '08:00' })
+  })
+
   it('persists creators, normalizes URLs and enforces the ten-creator limit', async () => {
     const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
     await runtime.addCreator('https://www.douyin.com/user/first?from_tab_name=main')

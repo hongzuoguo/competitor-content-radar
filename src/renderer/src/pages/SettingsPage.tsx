@@ -27,7 +27,7 @@ export function SettingsPage(): React.JSX.Element {
         modelId: String(data.get('modelId') ?? ''),
         apiKey: String(data.get('apiKey') ?? ''),
         customBaseUrl: String(data.get('customBaseUrl') ?? ''),
-        dailyTime: String(data.get('dailyTime') ?? '09:00'),
+        dailyTime: '08:00',
         weeklyTime: String(data.get('weeklyTime') ?? '09:30'),
         absoluteLikes: Number(data.get('absoluteLikes') ?? 10_000),
         relativeViralIndex: Number(data.get('relativeViralIndex') ?? 150),
@@ -60,7 +60,7 @@ export function SettingsPage(): React.JSX.Element {
           <section className="settings-section" id="schedule">
             <div className="settings-section__heading"><div><h2>自动运行</h2><p>电脑关机错过任务后，下次启动会补跑一次。</p></div></div>
             <div className="settings-grid">
-              <div className="form-field"><label htmlFor="daily-time">每日监控</label><input defaultValue={settings.dailyTime ?? '09:00'} id="daily-time" name="dailyTime" type="time" /></div>
+              <div className="form-field"><label htmlFor="daily-time">每日监控</label><input disabled id="daily-time" name="dailyTime" type="time" value="08:00" /></div>
               <div className="form-field"><label htmlFor="weekly-time">每周报告（周一）</label><input defaultValue={settings.weeklyTime ?? '09:30'} id="weekly-time" name="weeklyTime" type="time" /></div>
             </div>
           </section>
