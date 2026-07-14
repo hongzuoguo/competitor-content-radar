@@ -4,7 +4,9 @@ import { isSafeDouyinMediaUrl } from '../media/url-safety'
 import { defaultTreeAdapter, parse, type DefaultTreeAdapterMap } from 'parse5'
 
 const SHARE_HOSTS = new Set(['iesdouyin.com', 'www.iesdouyin.com', 'douyin.com', 'www.douyin.com'])
-const DEFAULT_TIMEOUT_MS = 12_000
+const DEFAULT_ATTEMPT_TIMEOUT_MS = 12_000
+const DEFAULT_TOTAL_TIMEOUT_MS = 35_000
+const DEFAULT_RETRY_DELAY_MS = 250
 const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024
 const MAX_REDIRECTS = 3
 const MOBILE_USER_AGENT =
@@ -24,7 +26,11 @@ export interface PublicDouyinVideo {
 
 export interface PublicShareResolverOptions {
   fetcher?: typeof fetch
+  /** @deprecated Use totalTimeoutMs. Kept as the total-chain timeout for compatibility. */
   timeoutMs?: number
+  attemptTimeoutMs?: number
+  totalTimeoutMs?: number
+  retryDelayMs?: number
   maxBodyBytes?: number
   report?(event: PublicShareDiagnostic): void
 }
@@ -32,7 +38,9 @@ export interface PublicShareResolverOptions {
 export interface PublicShareDiagnostic {
   videoId: string
   source: PublicDouyinVideo['source']
+  attempt: 1 | 2
   outcome: 'success' | 'not_found' | 'request_failed'
+  resultCode: 'SUCCESS' | 'NOT_FOUND' | 'TRANSPORT_FAILED' | 'ATTEMPT_TIMEOUT'
   elapsedMs: number
 }
 
@@ -69,11 +77,13 @@ export async function resolvePublicDouyinVideo(
   if (!/^\d+$/.test(videoId)) throw new PublicShareError('INVALID_DOUYIN_VIDEO_ID')
 
   const fetcher = options.fetcher ?? fetch
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const attemptTimeoutMs = options.attemptTimeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS
+  const totalTimeoutMs = options.totalTimeoutMs ?? options.timeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES
-  const controller = new AbortController()
+  const totalController = new AbortController()
   const timeoutError = new PublicShareError('DOUYIN_PUBLIC_SHARE_TIMEOUT')
-  const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs)
+  const timer = setTimeout(() => totalController.abort(timeoutError), totalTimeoutMs)
 
   try {
     const endpoints: PublicEndpoint[] = [
@@ -103,39 +113,52 @@ export async function resolvePublicDouyinVideo(
       }
     ]
     for (const endpoint of endpoints) {
-      const startedAt = Date.now()
-      let result: PublicDouyinVideo | null
-      try {
-        result = await resolveEndpoint(
-          videoId,
-          endpoint,
-          fetcher,
-          controller.signal,
-          maxBodyBytes
-        )
-      } catch (error) {
-        if (error instanceof EndpointRequestFailedError) {
+      for (const attempt of [1, 2] as const) {
+        const startedAt = Date.now()
+        let result: PublicDouyinVideo | null
+        try {
+          result = await resolveEndpointAttempt(
+            videoId,
+            endpoint,
+            fetcher,
+            totalController.signal,
+            attemptTimeoutMs,
+            maxBodyBytes
+          )
+        } catch (error) {
+          if (totalController.signal.aborted) throw timeoutError
+          if (!(error instanceof EndpointRequestFailedError)) throw error
           report(options.report, {
             videoId,
             source: endpoint.source,
+            attempt,
             outcome: 'request_failed',
+            resultCode: error instanceof EndpointAttemptTimeoutError
+              ? 'ATTEMPT_TIMEOUT'
+              : 'TRANSPORT_FAILED',
             elapsedMs: Date.now() - startedAt
           })
-          continue
+          if (attempt === 1) {
+            await waitForRetry(retryDelayMs, totalController.signal)
+            continue
+          }
+          break
         }
-        throw error
+        report(options.report, {
+          videoId,
+          source: endpoint.source,
+          attempt,
+          outcome: result ? 'success' : 'not_found',
+          resultCode: result ? 'SUCCESS' : 'NOT_FOUND',
+          elapsedMs: Date.now() - startedAt
+        })
+        if (result) return result
+        break
       }
-      report(options.report, {
-        videoId,
-        source: endpoint.source,
-        outcome: result ? 'success' : 'not_found',
-        elapsedMs: Date.now() - startedAt
-      })
-      if (result) return result
     }
     return null
   } catch (error) {
-    if (controller.signal.aborted && controller.signal.reason === timeoutError) throw timeoutError
+    if (totalController.signal.aborted) throw timeoutError
     if (error instanceof PublicShareError || error instanceof DouyinRiskControlError) throw error
     throw new PublicShareError('DOUYIN_PUBLIC_SHARE_REQUEST_FAILED')
   } finally {
@@ -144,6 +167,68 @@ export async function resolvePublicDouyinVideo(
 }
 
 class EndpointRequestFailedError extends Error {}
+class EndpointAttemptTimeoutError extends EndpointRequestFailedError {}
+
+async function resolveEndpointAttempt(
+  videoId: string,
+  endpoint: PublicEndpoint,
+  fetcher: typeof fetch,
+  totalSignal: AbortSignal,
+  attemptTimeoutMs: number,
+  maxBodyBytes: number
+): Promise<PublicDouyinVideo | null> {
+  const attemptController = new AbortController()
+  const timeoutError = new EndpointAttemptTimeoutError()
+  const abortFromTotal = (): void => attemptController.abort(totalSignal.reason)
+  if (totalSignal.aborted) abortFromTotal()
+  else totalSignal.addEventListener('abort', abortFromTotal, { once: true })
+  const timer = setTimeout(() => attemptController.abort(timeoutError), attemptTimeoutMs)
+  let rejectOnAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectOnAbort = (): void => reject(attemptController.signal.reason)
+    if (attemptController.signal.aborted) rejectOnAbort()
+    else attemptController.signal.addEventListener('abort', rejectOnAbort, { once: true })
+  })
+
+  try {
+    return await Promise.race([
+      resolveEndpoint(
+        videoId,
+        endpoint,
+        fetcher,
+        attemptController.signal,
+        maxBodyBytes
+      ),
+      aborted
+    ])
+  } catch (error) {
+    if (attemptController.signal.aborted && attemptController.signal.reason === timeoutError) {
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    totalSignal.removeEventListener('abort', abortFromTotal)
+    if (rejectOnAbort) attemptController.signal.removeEventListener('abort', rejectOnAbort)
+  }
+}
+
+function waitForRetry(delayMs: number, totalSignal: AbortSignal): Promise<void> {
+  if (totalSignal.aborted) return Promise.reject(totalSignal.reason)
+  return new Promise((resolve, reject) => {
+    const finish = (): void => {
+      totalSignal.removeEventListener('abort', abort)
+      resolve()
+    }
+    const timer = setTimeout(finish, delayMs)
+    const abort = (): void => {
+      clearTimeout(timer)
+      totalSignal.removeEventListener('abort', abort)
+      reject(totalSignal.reason)
+    }
+    totalSignal.addEventListener('abort', abort, { once: true })
+  })
+}
 
 async function resolveEndpoint(
   videoId: string,

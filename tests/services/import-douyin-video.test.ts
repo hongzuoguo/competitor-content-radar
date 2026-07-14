@@ -14,7 +14,12 @@ const noPublicResult = vi.fn(async (): Promise<PublicDouyinVideo | null> => null
 describe('Douyin video URL import', () => {
   it('opens the browser once after every public endpoint body stream fails', async () => {
     const fetcher = vi.fn<typeof fetch>()
-    for (const contentType of ['text/html', 'application/json', 'text/html', 'application/json']) {
+    for (const contentType of [
+      'text/html', 'text/html',
+      'application/json', 'application/json',
+      'text/html', 'text/html',
+      'application/json', 'application/json'
+    ]) {
       fetcher.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
         start(controller) { controller.error(new Error('stream interrupted')) }
       }), { headers: { 'content-type': contentType } }))
@@ -28,9 +33,9 @@ describe('Douyin video URL import', () => {
       'https://www.douyin.com/video/7658',
       { captureSingleVideo },
       fetch,
-      (videoId) => resolvePublicDouyinVideo(videoId, { fetcher })
+      (videoId) => resolvePublicDouyinVideo(videoId, { fetcher, retryDelayMs: 0 })
     )).resolves.toMatchObject({ title: '浏览器文案' })
-    expect(fetcher).toHaveBeenCalledTimes(4)
+    expect(fetcher).toHaveBeenCalledTimes(8)
     expect(captureSingleVideo).toHaveBeenCalledOnce()
   })
   it('uses public media without opening the browser', async () => {

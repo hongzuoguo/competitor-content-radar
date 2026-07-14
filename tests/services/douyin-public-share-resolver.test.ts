@@ -224,10 +224,12 @@ describe('Douyin public share resolver', () => {
   it('continues to the next endpoint when reading a response stream fails', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(brokenStreamResponse())
+      .mockResolvedValueOnce(brokenStreamResponse())
       .mockResolvedValueOnce(jsonResponse({ aweme_detail: video() }))
 
-    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ source: 'detail_api' })
-    expect(fetcher).toHaveBeenCalledTimes(2)
+    await expect(resolvePublicDouyinVideo(ID, { fetcher, retryDelayMs: 0 }))
+      .resolves.toMatchObject({ source: 'detail_api' })
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
   it('parses a video from window._ROUTER_DATA and sends a constrained request', async () => {
@@ -465,21 +467,172 @@ describe('Douyin public share resolver', () => {
     })
   })
 
+  it('keeps timeoutMs as a backwards-compatible total chain timeout', async () => {
+    const fetcher = vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+    }))
+
+    await expect(resolvePublicDouyinVideo(ID, {
+      fetcher,
+      timeoutMs: 5,
+      attemptTimeoutMs: 1_000,
+      retryDelayMs: 0
+    })).rejects.toMatchObject({ code: 'DOUYIN_PUBLIC_SHARE_TIMEOUT' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries the same endpoint once after a transient fetch failure', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(response(routerHtml(video())))
+    const report = vi.fn()
+
+    await expect(resolvePublicDouyinVideo(ID, {
+      fetcher,
+      retryDelayMs: 0,
+      report
+    })).resolves.toMatchObject({ source: 'share_router' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      `https://www.iesdouyin.com/share/video/${ID}`,
+      `https://www.iesdouyin.com/share/video/${ID}`
+    ])
+    expect(report).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      source: 'share_router',
+      attempt: 1,
+      outcome: 'request_failed',
+      resultCode: 'TRANSPORT_FAILED'
+    }))
+    expect(report).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      source: 'share_router',
+      attempt: 2,
+      outcome: 'success',
+      resultCode: 'SUCCESS'
+    }))
+  })
+
+  it('gives a timed-out endpoint attempt a fresh signal and retries it once', async () => {
+    const signals: AbortSignal[] = []
+    const fetcher = vi.fn<typeof fetch>((_input, init) => {
+      const signal = init?.signal as AbortSignal
+      signals.push(signal)
+      if (signals.length === 2) return Promise.resolve(response(routerHtml(video())))
+      return new Promise(() => undefined)
+    })
+    const report = vi.fn()
+
+    await expect(resolvePublicDouyinVideo(ID, {
+      fetcher,
+      attemptTimeoutMs: 5,
+      totalTimeoutMs: 100,
+      retryDelayMs: 0,
+      report
+    })).resolves.toMatchObject({ source: 'share_router' })
+    expect(signals).toHaveLength(2)
+    expect(signals[0]).not.toBe(signals[1])
+    expect(report).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      attempt: 1,
+      resultCode: 'ATTEMPT_TIMEOUT'
+    }))
+  }, 200)
+
+  it('stops the whole endpoint chain at totalTimeoutMs', async () => {
+    const fetcher = vi.fn<typeof fetch>(() => new Promise(() => undefined))
+
+    await expect(resolvePublicDouyinVideo(ID, {
+      fetcher,
+      attemptTimeoutMs: 1_000,
+      totalTimeoutMs: 5,
+      retryDelayMs: 0
+    })).rejects.toMatchObject({ code: 'DOUYIN_PUBLIC_SHARE_TIMEOUT' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  }, 200)
+
+  it('cancels the retry delay when the total timeout expires', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed'))
+
+    await expect(resolvePublicDouyinVideo(ID, {
+      fetcher,
+      attemptTimeoutMs: 1_000,
+      totalTimeoutMs: 5,
+      retryDelayMs: 1_000
+    })).rejects.toMatchObject({ code: 'DOUYIN_PUBLIC_SHARE_TIMEOUT' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry deterministic public-share failures', async () => {
+    const cases: Array<{ fetcher: ReturnType<typeof vi.fn<typeof fetch>>; code: string }> = [
+      {
+        fetcher: vi.fn<typeof fetch>().mockResolvedValue(response('large', {
+          headers: { 'content-length': '101' }
+        })),
+        code: 'DOUYIN_PUBLIC_SHARE_BODY_TOO_LARGE'
+      },
+      {
+        fetcher: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, {
+          status: 302,
+          headers: { location: 'https://evil.example/video' }
+        })),
+        code: 'DOUYIN_PUBLIC_SHARE_UNSAFE_REDIRECT'
+      }
+    ]
+
+    for (const testCase of cases) {
+      await expect(resolvePublicDouyinVideo(ID, {
+        fetcher: testCase.fetcher,
+        maxBodyBytes: 100,
+        retryDelayMs: 0
+      })).rejects.toMatchObject({ code: testCase.code })
+      expect(testCase.fetcher).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('does not retry risk control responses', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response('<body>访问过于频繁，请完成安全验证</body>')
+    )
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher, retryDelayMs: 0 }))
+      .rejects.toBeInstanceOf(DouyinRiskControlError)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
   it('continues past transport failures and reports only sanitized diagnostics', async () => {
     const fetcher = vi.fn<typeof fetch>().mockRejectedValue(
       new Error('request failed https://media.example.com/video?token=secret')
     )
     const report = vi.fn()
 
-    await expect(resolvePublicDouyinVideo(ID, { fetcher, report })).resolves.toBeNull()
-    expect(report).toHaveBeenCalledTimes(4)
+    await expect(resolvePublicDouyinVideo(ID, { fetcher, report, retryDelayMs: 0 })).resolves.toBeNull()
+    expect(report).toHaveBeenCalledTimes(8)
     expect(report).toHaveBeenNthCalledWith(1, {
       videoId: ID,
       source: 'share_router',
+      attempt: 1,
       outcome: 'request_failed',
+      resultCode: 'TRANSPORT_FAILED',
       elapsedMs: expect.any(Number)
     })
     expect(JSON.stringify(report.mock.calls)).not.toContain('token=secret')
+  })
+
+  it('reports stable NOT_FOUND diagnostics without retrying an empty endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+    const report = vi.fn()
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher, report })).resolves.toBeNull()
+    expect(fetcher).toHaveBeenCalledTimes(4)
+    expect(report).toHaveBeenCalledTimes(4)
+    expect(report).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      source: 'share_router',
+      attempt: 1,
+      outcome: 'not_found',
+      resultCode: 'NOT_FOUND'
+    }))
   })
 
   it('rejects Content-Length above the configured limit', async () => {
