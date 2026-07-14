@@ -1,4 +1,4 @@
-import { app, net } from 'electron'
+import { app } from 'electron'
 import log from 'electron-log/main'
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
@@ -23,6 +23,7 @@ import { ImportService, type ImportNotificationPort, type WorkProcessor } from '
 import { ingestLocalFile } from '../services/import/local-file-source'
 import { resolveDouyinVideo } from '../services/import/douyin-video-source'
 import { resolveDouyinCreatorUrl } from '../services/douyin/creator-url'
+import { createCreatorRedirectFetch } from './creator-redirect-request'
 
 interface ModelManifest {
   id: string
@@ -133,9 +134,7 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
     discover: (creatorId, profileUrl) => douyin.captureCreatorWorks(creatorId, profileUrl),
     processWork,
     login: () => douyin.openLoginWindow(),
-    resolveCreatorInput: (input) => resolveDouyinCreatorUrl(input, (url, requestOptions) => {
-      return net.fetch(url, requestOptions)
-    }),
+    resolveCreatorInput: (input) => resolveDouyinCreatorUrl(input, createCreatorRedirectFetch()),
     saveApiKey: (providerId, apiKey) => secrets.set(`ai.${providerId}`, apiKey),
     report: (level, message, detail) => log[level](message, detail ?? '')
   }

@@ -53,6 +53,19 @@ describe('desktop runtime assembly', () => {
     ])
   })
 
+  it('returns the existing creator when the same resolved profile is added again', async () => {
+    const resolveCreatorInput = vi.fn(async () => 'https://www.douyin.com/user/resolved-user')
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn(), resolveCreatorInput
+    })
+
+    const first = await runtime.addCreator('https://v.douyin.com/first-card/')
+    const duplicate = await runtime.addCreator('https://v.douyin.com/same-card/')
+
+    expect(duplicate).toEqual(first)
+    expect(await runtime.listCreators()).toHaveLength(1)
+  })
+
   it('returns the saved creator before the first background capture completes', async () => {
     let finishDiscovery!: (works: Work[]) => void
     const discovery = new Promise<Work[]>((resolve) => { finishDiscovery = resolve })

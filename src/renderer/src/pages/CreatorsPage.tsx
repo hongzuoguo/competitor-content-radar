@@ -40,7 +40,14 @@ export function CreatorsPage({ initialCreators }: { initialCreators?: CreatorRow
     setMessage('正在添加博主…')
     try {
       const creator = await window.desktopApi.addCreator(profileUrl)
-      setCreators((current) => [...current, creator])
+      const alreadyExists = creators.some((item) => item.id === creator.id)
+      setCreators((current) => current.some((item) => item.id === creator.id)
+        ? current.map((item) => item.id === creator.id ? creator : item)
+        : [...current, creator])
+      if (alreadyExists) {
+        setMessage('该博主已在监控列表中。')
+        return
+      }
       setMessage('博主已添加，正在后台进行首次采集。')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '添加失败，请检查主页地址。')
@@ -63,15 +70,16 @@ export function CreatorsPage({ initialCreators }: { initialCreators?: CreatorRow
   async function deleteCreator(): Promise<void> {
     if (!pendingDelete) return
     const creator = pendingDelete
-    setPendingDelete(null)
     if (!window.desktopApi) {
       setCreators((current) => current.filter((item) => item.id !== creator.id))
+      setPendingDelete(null)
       return
     }
     setMessage('正在删除博主…')
     try {
       await window.desktopApi.deleteCreator(creator.id)
       setCreators((current) => current.filter((item) => item.id !== creator.id))
+      setPendingDelete(null)
       setMessage(`${creator.name}及其历史数据已删除。`)
     } catch {
       setMessage('删除失败，请稍后重试。')

@@ -183,12 +183,21 @@ export class DesktopRuntime {
   }
 
   async addCreator(input: string): Promise<CreatorView> {
-    const creators = this.repositories.creators.list()
-    if (creators.length >= 10) throw new Error('CREATOR_LIMIT_REACHED')
     const resolvedInput = this.ports.resolveCreatorInput
       ? await this.ports.resolveCreatorInput(input)
       : input
     const profileUrl = normalizeCreatorUrl(resolvedInput)
+    const creators = this.repositories.creators.list()
+    const existing = creators.find((creator) => creator.profileUrl === profileUrl)
+    if (existing) {
+      return {
+        ...existing,
+        works: this.repositories.works.listByCreator(existing.id).length,
+        lastRun: this.lastRunAt ? new Date(this.lastRunAt).toLocaleString('zh-CN', { hour12: false }) : '尚未采集',
+        status: this.lastRunAt ? 'ready' : 'waiting'
+      }
+    }
+    if (creators.length >= 10) throw new Error('CREATOR_LIMIT_REACHED')
     const handle = profileUrl.split('/').at(-1) ?? '新博主'
     const creator = {
       id: randomUUID(),
