@@ -1,7 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type CreatorView, type DashboardData, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type CreatorView, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
 
 export interface IpcDependencies {
   getDashboard(): Promise<DashboardData>
@@ -72,12 +72,13 @@ export function registerIpcHandlers(dependencies: IpcDependencies, updates?: Upd
     return dependencies.retryImport(value.trim())
   }))
   ipcMain.handle(IPC_CHANNELS.workList, () => dependencies.listWorks())
-  ipcMain.handle(IPC_CHANNELS.workDeleteFailed, async (_event, value: unknown) => {
-    if (typeof value !== 'string' || !value.trim()) throw codedError('INVALID_WORK_DELETE', 'A work id is required.')
+  ipcMain.handle(IPC_CHANNELS.workDeleteFailed, async (_event, value: unknown): Promise<DeleteFailedWorkInvokeResult> => {
     try {
+      if (typeof value !== 'string' || !value.trim()) throw codedError('INVALID_WORK_DELETE', 'A work id is required.')
       await dependencies.deleteFailedWork(value.trim())
+      return { ok: true }
     } catch (error) {
-      throw sanitizeDeleteError(error)
+      return { ok: false, error: sanitizeDeleteError(error) }
     }
   })
   ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, value: unknown) => {
@@ -131,8 +132,8 @@ function codedError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code, retryable: false })
 }
 
-function sanitizeDeleteError(error: unknown): Error {
+function sanitizeDeleteError(error: unknown): { code: string; message: string } {
   const value = error instanceof Error ? error : new Error('Failed work could not be deleted.')
   const code = 'code' in value && typeof value.code === 'string' ? value.code : 'WORK_DELETE_FAILED'
-  return Object.assign(new Error(value.message), { code })
+  return { code, message: value.message }
 }

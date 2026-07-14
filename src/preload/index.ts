@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type DashboardData, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkFocusRequest, type WorkListItem } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkFocusRequest, type WorkListItem } from '../shared/ipc-contract'
 import type { CreatorView, PublicSettings } from '../shared/ipc-contract'
 
 export interface DesktopApi {
@@ -51,7 +51,7 @@ const desktopApi: DesktopApi = {
   getPathForFile: (file) => webUtils.getPathForFile(file),
   startImport: (request) => invokeImport(IPC_CHANNELS.importStart, request),
   retryImport: (workId) => invokeImport(IPC_CHANNELS.importRetry, workId),
-  deleteFailedWork: (workId) => ipcRenderer.invoke(IPC_CHANNELS.workDeleteFailed, workId),
+  deleteFailedWork: (workId) => invokeDeleteFailedWork(workId),
   listWorks: () => ipcRenderer.invoke(IPC_CHANNELS.workList),
   onWorkStateChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, workId: string): void => listener(workId)
@@ -72,5 +72,13 @@ async function invokeImport(channel: string, payload: unknown): Promise<ImportSt
   if (result.ok) return result.value
   const error = Object.assign(new Error(result.error.message), result.error)
   error.name = 'ImportError'
+  throw error
+}
+
+async function invokeDeleteFailedWork(workId: string): Promise<void> {
+  const result = await ipcRenderer.invoke(IPC_CHANNELS.workDeleteFailed, workId) as DeleteFailedWorkInvokeResult
+  if (result.ok) return
+  const error = Object.assign(new Error(result.error.message), { code: result.error.code })
+  error.name = 'DeleteFailedWorkError'
   throw error
 }

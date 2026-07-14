@@ -45,6 +45,10 @@ export type ImportInvokeResult =
       error: { code: string; message: string; action?: string; retryable?: boolean }
     }
 
+export type DeleteFailedWorkInvokeResult =
+  | { ok: true }
+  | { ok: false; error: { code: string; message: string } }
+
 export interface WorkListItem {
   id: string
   creatorId: string | null

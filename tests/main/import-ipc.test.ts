@@ -85,11 +85,12 @@ describe('import IPC', () => {
     const deps = dependencies()
     registerIpcHandlers(deps)
 
-    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, ' failed-1 ')).resolves.toBeUndefined()
+    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, ' failed-1 ')).resolves.toEqual({ ok: true })
     expect(deps.deleteFailedWork).toHaveBeenCalledWith('failed-1')
 
-    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, ' ')).rejects.toMatchObject({
-      code: 'INVALID_WORK_DELETE', message: 'A work id is required.'
+    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, ' ')).resolves.toEqual({
+      ok: false,
+      error: { code: 'INVALID_WORK_DELETE', message: 'A work id is required.' }
     })
     expect(deps.deleteFailedWork).toHaveBeenCalledTimes(1)
   })
@@ -102,11 +103,9 @@ describe('import IPC', () => {
     vi.mocked(deps.deleteFailedWork).mockRejectedValue(source)
     registerIpcHandlers(deps)
 
-    const error = await handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, 'failed-1')
-      .catch((value: unknown) => value) as Error & Record<string, unknown>
-
-    expect(error).toMatchObject({ code: 'FAILED_WORK_FILE_CLEANUP_FAILED', message: 'Cleanup failed' })
-    expect(error).not.toHaveProperty('path')
-    expect(error).not.toHaveProperty('action')
+    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, 'failed-1')).resolves.toEqual({
+      ok: false,
+      error: { code: 'FAILED_WORK_FILE_CLEANUP_FAILED', message: 'Cleanup failed' }
+    })
   })
 })

@@ -65,10 +65,25 @@ describe('preload work events', () => {
   })
 
   it('invokes the exact failed-work deletion channel', async () => {
-    mocks.invoke.mockResolvedValueOnce(undefined)
+    mocks.invoke.mockResolvedValueOnce({ ok: true })
 
     await expect(mocks.exposedApi!.deleteFailedWork('failed-1')).resolves.toBeUndefined()
 
     expect(mocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.workDeleteFailed, 'failed-1')
+  })
+
+  it('reconstructs the stable failed-work deletion error code', async () => {
+    mocks.invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'FAILED_WORK_FILE_CLEANUP_FAILED', message: 'Failed work files could not be removed.' }
+    })
+
+    const error = await mocks.exposedApi!.deleteFailedWork('failed-1').catch((value: unknown) => value)
+
+    expect(error).toMatchObject({
+      name: 'DeleteFailedWorkError',
+      code: 'FAILED_WORK_FILE_CLEANUP_FAILED',
+      message: 'Failed work files could not be removed.'
+    })
   })
 })
