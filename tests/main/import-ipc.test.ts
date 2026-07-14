@@ -14,7 +14,7 @@ function dependencies(): IpcDependencies {
   return {
     getDashboard: vi.fn(), runNow: vi.fn(), listCreators: vi.fn(), addCreator: vi.fn(),
     deleteCreator: vi.fn(), toggleCreator: vi.fn(), loginDouyin: vi.fn(), getSettings: vi.fn(),
-    saveSettings: vi.fn(), startImport: vi.fn(), retryImport: vi.fn(), listWorks: vi.fn()
+    saveSettings: vi.fn(), startImport: vi.fn(), retryImport: vi.fn(), deleteFailedWork: vi.fn(), listWorks: vi.fn()
   }
 }
 
@@ -79,5 +79,34 @@ describe('import IPC', () => {
       ok: false,
       error: { code: 'INVALID_CREATOR', message: 'Creator missing', action: 'Choose another creator', retryable: false }
     })
+  })
+
+  it('trims failed-work ids before deletion and rejects blank ids', async () => {
+    const deps = dependencies()
+    registerIpcHandlers(deps)
+
+    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, ' failed-1 ')).resolves.toBeUndefined()
+    expect(deps.deleteFailedWork).toHaveBeenCalledWith('failed-1')
+
+    await expect(handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, ' ')).rejects.toMatchObject({
+      code: 'INVALID_WORK_DELETE', message: 'A work id is required.'
+    })
+    expect(deps.deleteFailedWork).toHaveBeenCalledTimes(1)
+  })
+
+  it('sanitizes failed-work deletion errors without exposing extra metadata', async () => {
+    const deps = dependencies()
+    const source = Object.assign(new Error('Cleanup failed'), {
+      code: 'FAILED_WORK_FILE_CLEANUP_FAILED', path: 'C:\\private\\media\\failed-1', action: 'inspect disk'
+    })
+    vi.mocked(deps.deleteFailedWork).mockRejectedValue(source)
+    registerIpcHandlers(deps)
+
+    const error = await handlers.get(IPC_CHANNELS.workDeleteFailed)?.({}, 'failed-1')
+      .catch((value: unknown) => value) as Error & Record<string, unknown>
+
+    expect(error).toMatchObject({ code: 'FAILED_WORK_FILE_CLEANUP_FAILED', message: 'Cleanup failed' })
+    expect(error).not.toHaveProperty('path')
+    expect(error).not.toHaveProperty('action')
   })
 })

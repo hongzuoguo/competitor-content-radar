@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({ on: vi.fn(), removeListener: vi.fn(), invoke: 
   { onWorkStateChanged(listener: (workId: string) => void): () => void
     onWorkFocusRequested(listener: (request: { workId: string; requestId: string }) => void): () => void
     startImport(request: unknown): Promise<unknown>
+    deleteFailedWork(workId: string): Promise<void>
     getPathForFile(file: File): string } | undefined,
   getPathForFile: vi.fn() }))
 
@@ -61,5 +62,13 @@ describe('preload work events', () => {
       name: 'ImportError', code: 'INVALID_CREATOR', message: 'Creator missing',
       action: 'Choose another creator', retryable: false
     })
+  })
+
+  it('invokes the exact failed-work deletion channel', async () => {
+    mocks.invoke.mockResolvedValueOnce(undefined)
+
+    await expect(mocks.exposedApi!.deleteFailedWork('failed-1')).resolves.toBeUndefined()
+
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.workDeleteFailed, 'failed-1')
   })
 })

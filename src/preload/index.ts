@@ -22,6 +22,7 @@ export interface DesktopApi {
   getPathForFile: (file: File) => string
   startImport: (request: ImportRequest) => Promise<ImportStartResult>
   retryImport: (workId: string) => Promise<ImportStartResult>
+  deleteFailedWork: (workId: string) => Promise<void>
   listWorks: () => Promise<WorkListItem[]>
   onWorkStateChanged: (listener: (workId: string) => void) => () => void
   onWorkFocusRequested: (listener: (request: WorkFocusRequest) => void) => () => void
@@ -50,6 +51,7 @@ const desktopApi: DesktopApi = {
   getPathForFile: (file) => webUtils.getPathForFile(file),
   startImport: (request) => invokeImport(IPC_CHANNELS.importStart, request),
   retryImport: (workId) => invokeImport(IPC_CHANNELS.importRetry, workId),
+  deleteFailedWork: (workId) => ipcRenderer.invoke(IPC_CHANNELS.workDeleteFailed, workId),
   listWorks: () => ipcRenderer.invoke(IPC_CHANNELS.workList),
   onWorkStateChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, workId: string): void => listener(workId)

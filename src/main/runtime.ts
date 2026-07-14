@@ -63,6 +63,11 @@ export class DesktopRuntime {
     return this.imports.retry(workId)
   }
 
+  deleteFailedWork(workId: string): Promise<void> {
+    if (!this.imports) return Promise.reject(new Error('IMPORT_SERVICE_UNAVAILABLE'))
+    return this.imports.deleteFailed(workId)
+  }
+
   onWorkStateChanged(listener: (workId: string) => void): () => void {
     return this.imports?.subscribe(listener) ?? (() => undefined)
   }

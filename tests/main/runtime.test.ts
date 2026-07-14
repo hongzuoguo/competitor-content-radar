@@ -102,6 +102,24 @@ describe('desktop runtime assembly', () => {
     expect(imports.retry).toHaveBeenCalledWith('import-1')
   })
 
+  it('delegates failed-work deletion to the assembled import service', async () => {
+    const imports = { deleteFailed: vi.fn(async () => undefined) } as unknown as ImportService
+    const runtime = new DesktopRuntime(
+      database,
+      { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() },
+      imports
+    )
+
+    await expect(runtime.deleteFailedWork('failed-1')).resolves.toBeUndefined()
+    expect(imports.deleteFailed).toHaveBeenCalledWith('failed-1')
+  })
+
+  it('reports when failed-work deletion has no import service', async () => {
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
+
+    await expect(runtime.deleteFailedWork('failed-1')).rejects.toThrow('IMPORT_SERVICE_UNAVAILABLE')
+  })
+
   it('lists monitored and imported works with joined creator, job, analysis and artifact state', async () => {
     const repositories = new AppRepositories(database.connection)
     repositories.creators.create({ id: 'creator-1', platform: 'douyin', name: 'Alice', profileUrl: 'https://www.douyin.com/user/alice', enabled: true, createdAt: '2026-01-01T00:00:00.000Z' })

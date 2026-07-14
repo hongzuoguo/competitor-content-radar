@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
   importStart: 'imports:start',
   importRetry: 'imports:retry',
   workList: 'works:list',
+  workDeleteFailed: 'works:delete-failed',
   workStateChanged: 'works:state-changed',
   workFocusRequested: 'works:focus-requested'
 } as const
