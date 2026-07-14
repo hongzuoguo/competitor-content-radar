@@ -43,8 +43,8 @@ export function CreatorRail({ creators, works, selectedId, onSelect }: {
   }
 
   return (
-    <section aria-label="已订阅博主" className="creator-rail">
-      <header><div><h2>作品来源</h2><span>{items.length} 组</span></div><Link to="/creators">添加博主</Link></header>
+    <section aria-labelledby="subscription-creators-title" className="creator-rail">
+      <header><div><h2 id="subscription-creators-title">作品来源</h2><span>{items.length} 组</span></div><Link to="/creators">添加博主</Link></header>
       {items.length === 0 ? <p className="workspace-empty-copy">还没有启用的订阅。添加博主后，作品会按天自动更新。</p> : (
         <div className="creator-rail__list">
           {items.map((item) => (

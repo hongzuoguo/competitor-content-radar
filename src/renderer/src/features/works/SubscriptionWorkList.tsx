@@ -26,9 +26,9 @@ export function SubscriptionWorkList({ works, selectedId, focusId, onSelect, onF
   const groups = useMemo(() => groupByLocalDay(filtered), [filtered])
 
   return (
-    <section aria-label="作品列表" className="subscription-work-list">
+    <section aria-labelledby="subscription-works-title" className="subscription-work-list">
       <header>
-        <div><h2>作品</h2><span>{works.length} 条</span></div>
+        <div><h2 id="subscription-works-title">作品列表</h2><span>{works.length} 条</span></div>
         <div aria-label="作品筛选" className="segmented" role="group">
           <FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>全部</FilterButton>
           <FilterButton active={filter === 'worthwhile'} onClick={() => setFilter('worthwhile')}>值得看</FilterButton>

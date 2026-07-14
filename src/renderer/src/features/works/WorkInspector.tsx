@@ -40,9 +40,10 @@ export function WorkInspector({ workId, revision = 0 }: { workId: string | null;
   const detailMatchesSelection = detail?.id === workId
 
   return (
-    <section aria-label="作品详情" className="work-inspector">
+    <section aria-labelledby="subscription-inspector-title" className="work-inspector">
+      <span className="visually-hidden" id="subscription-inspector-title">作品详情</span>
       {state === 'empty' ? <InspectorState title="选择一条作品" detail="这里会显示指标、文字稿和 AI 拆解。" /> : null}
-      {state === 'loading' || (state === 'ready' && !detailMatchesSelection) ? <div aria-label="正在加载作品详情" className="inspector-loading" role="status"><i /><i /><i /></div> : null}
+      {state === 'loading' || (state === 'ready' && !detailMatchesSelection) ? <div aria-label="正在加载作品详情" className="inspector-loading" role="status"><i aria-hidden="true" /><i aria-hidden="true" /><i aria-hidden="true" /></div> : null}
       {state === 'failed' ? <InspectorState title="作品详情加载失败" detail="本地记录暂时无法读取，请重新选择或稍后再试。" alert /> : null}
       {state === 'ready' && detail && detailMatchesSelection ? <>
         <header className="work-inspector__heading">

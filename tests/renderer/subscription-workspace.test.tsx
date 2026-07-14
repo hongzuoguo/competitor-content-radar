@@ -71,6 +71,19 @@ describe('subscription workspace', () => {
     expect(within(screen.getByRole('region', { name: '作品列表' })).queryByText('最新作品')).not.toBeInTheDocument()
   })
 
+  it('exposes the three workspace columns as named regions', async () => {
+    installApi()
+    render(<WorksPage />)
+
+    const creatorRegion = await screen.findByRole('region', { name: '作品来源' })
+    const workRegion = screen.getByRole('region', { name: '作品列表' })
+    const inspectorRegion = screen.getByRole('region', { name: '作品详情' })
+
+    expect(creatorRegion).toHaveAttribute('aria-labelledby', 'subscription-creators-title')
+    expect(workRegion).toHaveAttribute('aria-labelledby', 'subscription-works-title')
+    expect(inspectorRegion).toHaveAttribute('aria-labelledby', 'subscription-inspector-title')
+  })
+
   it('filters by worthwhile and viral signals and shows all decision labels', async () => {
     installApi()
     render(<WorksPage />)

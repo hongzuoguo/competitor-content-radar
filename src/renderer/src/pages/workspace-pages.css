@@ -649,16 +649,27 @@
 
 .subscription-workspace {
   display: grid;
-  min-height: 560px;
-  grid-template-columns: 200px 320px minmax(420px, 1fr);
+  height: clamp(500px, calc(100vh - 238px), 720px);
+  min-height: 500px;
+  grid-template-columns: 220px 340px minmax(460px, 1fr);
+  overflow: hidden;
   border-block: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
 
 .creator-rail,
 .subscription-work-list,
 .work-inspector {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 16px;
+}
+
+.creator-rail {
+  background: var(--color-surface);
 }
 
 .creator-rail,
@@ -680,6 +691,7 @@
 .subscription-work-list h2,
 .work-inspector h2 {
   font-size: 16px;
+  line-height: 1.4;
 }
 
 .creator-rail header span,
@@ -702,6 +714,26 @@
   margin-top: 14px;
 }
 
+.creator-rail > header > div,
+.subscription-work-list > header > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.creator-rail > header a {
+  flex: 0 0 auto;
+  color: var(--color-primary-hover);
+  font-size: 12px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+.creator-rail > header a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .creator-rail__list > button,
 .subscription-work-row__select {
   border: 0;
@@ -717,6 +749,7 @@
   gap: 9px;
   border-radius: var(--radius-sm);
   padding: 9px;
+  transition: background var(--duration-fast) ease;
 }
 
 .creator-rail__list > button > span:last-child {
@@ -725,9 +758,27 @@
   gap: 2px;
 }
 
+.creator-rail__list > button strong,
+.creator-rail__list > button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creator-rail__list > button:hover,
+.subscription-work-row:hover {
+  background: var(--color-surface-strong);
+}
+
 .creator-rail__list > button[aria-pressed='true'],
 .subscription-work-row[data-selected='true'] {
   background: var(--color-primary-soft);
+}
+
+.creator-rail__list > button:focus-visible,
+.subscription-work-row__select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .workspace-empty-copy {
@@ -743,7 +794,6 @@
 }
 
 .subscription-work-list > header > div:first-child {
-  display: flex;
   justify-content: space-between;
 }
 
@@ -761,6 +811,7 @@
 .subscription-work-row {
   position: relative;
   border-bottom: 1px solid var(--color-border);
+  transition: background var(--duration-fast) ease;
 }
 
 .subscription-work-row__select {
@@ -792,7 +843,7 @@
 .subscription-work-row__heading time {
   flex: 0 0 auto;
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .subscription-work-row__badges {
@@ -802,7 +853,7 @@
 .subscription-work-row__meta {
   justify-content: space-between;
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .subscription-work-row__error {
@@ -829,11 +880,24 @@
 }
 
 .work-inspector {
-  overflow: auto;
+  background: var(--color-bg);
 }
 
 .work-inspector__heading p {
   margin-bottom: 4px;
+}
+
+.work-inspector__heading > div {
+  min-width: 0;
+}
+
+.work-inspector__heading h2 {
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.work-inspector__heading .button {
+  flex: 0 0 auto;
 }
 
 .work-inspector__metrics {
@@ -851,10 +915,12 @@
 
 .work-inspector__metrics dt {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .work-inspector__metrics dd {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
   font-weight: 650;
 }
 
@@ -882,6 +948,16 @@
   padding: 9px 12px;
   color: var(--color-muted);
   cursor: pointer;
+  transition: border-color var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.inspector-tabs button:hover {
+  color: var(--color-ink);
+}
+
+.inspector-tabs button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .inspector-tabs button[aria-selected='true'] {
@@ -904,15 +980,17 @@
 .analysis-sections h3,
 .transcript-panel h3 {
   margin-bottom: 7px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .analysis-sections p,
 .analysis-sections li,
 .transcript-panel > p {
   color: var(--color-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
 .analysis-sections ul {
@@ -932,14 +1010,24 @@
 .inspector-loading i {
   display: block;
   width: 220px;
+  max-width: 100%;
   height: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface-strong);
+  animation: work-skeleton 1.4s ease-in-out infinite alternate;
 }
 
-@media (max-width: 1180px) {
+.inspector-loading i:nth-child(2) {
+  width: 176px;
+}
+
+.inspector-loading i:nth-child(3) {
+  width: 204px;
+}
+
+@media (max-width: 1366px) {
   .subscription-workspace {
-    grid-template-columns: 170px 290px minmax(400px, 1fr);
+    grid-template-columns: clamp(180px, 16vw, 220px) clamp(280px, 24vw, 340px) minmax(460px, 1fr);
     overflow-x: auto;
   }
 }
@@ -957,7 +1045,11 @@
 @media (prefers-reduced-motion: reduce) {
   .work-row,
   .indeterminate-progress i,
-  .works-loading i {
+  .works-loading i,
+  .inspector-loading i,
+  .creator-rail__list > button,
+  .subscription-work-row,
+  .inspector-tabs button {
     animation: none;
     transition: none;
   }
