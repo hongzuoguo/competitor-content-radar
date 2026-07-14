@@ -250,6 +250,12 @@
   line-height: 1.7;
 }
 
+.confirm-dialog .confirm-dialog__error {
+  margin-top: 12px;
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
 .confirm-dialog__actions {
   display: flex;
   justify-content: flex-end;

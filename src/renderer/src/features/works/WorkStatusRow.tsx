@@ -1,4 +1,4 @@
-import { AlertCircle, LoaderCircle, RotateCcw, Upload } from 'lucide-react'
+import { AlertCircle, LoaderCircle, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { WorkListItem } from '../../../../shared/ipc-contract'
 import { Button } from '../../components/Button'
@@ -27,12 +27,14 @@ const FAILED_LABELS: Record<WorkListItem['stage'], string> = {
 export function WorkStatusRow({
   focusOnRender,
   onFocusConsumed,
+  onDeleteRequest,
   onLocalFallback,
   onRetry,
   work
 }: {
   focusOnRender: boolean
   onFocusConsumed(workId: string): void
+  onDeleteRequest(work: WorkListItem, trigger: HTMLButtonElement): void
   onLocalFallback(work: WorkListItem): void
   onRetry(workId: string): Promise<void>
   work: WorkListItem
@@ -89,6 +91,7 @@ export function WorkStatusRow({
         <div className="row-actions">
           {unavailable ? <Button icon={<Upload size={15} />} onClick={() => onLocalFallback(work)} variant="secondary">改为上传本地视频</Button> : null}
           {work.status === 'failed' && work.retryable ? <Button aria-label={`重试${work.title}`} disabled={retrying} icon={<RotateCcw size={15} />} onClick={() => void retry()} variant="secondary">{retrying ? '正在重试…' : '重试'}</Button> : null}
+          {work.status === 'failed' ? <Button aria-label={`删除失败任务：${work.title}`} icon={<Trash2 size={15} />} onClick={(event) => onDeleteRequest(work, event.currentTarget)} variant="secondary">删除</Button> : null}
         </div>
       </td>
     </tr>

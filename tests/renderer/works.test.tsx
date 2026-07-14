@@ -55,6 +55,7 @@ function createDesktopApi(works: WorkListItem[] = [completed]): DesktopApi {
     listWorks: vi.fn().mockResolvedValue(works),
     onWorkStateChanged: vi.fn((listener: (workId: string) => void) => { emitWorkChange = listener; return unsubscribe }),
     retryImport: vi.fn().mockResolvedValue({ accepted: true, workId: 'work-failed' }),
+    deleteFailedWork: vi.fn().mockResolvedValue(undefined),
     listCreators: vi.fn().mockResolvedValue([]),
     pickLocalVideo: vi.fn().mockResolvedValue('C:\\video\\fallback.mp4'),
     getPathForFile: vi.fn(),
@@ -105,6 +106,63 @@ describe('work analysis library', () => {
     fireEvent.click(retry)
     expect(desktopApi.retryImport).toHaveBeenCalledTimes(1)
     expect(retry).toBeDisabled()
+  })
+
+  it('offers deletion only for failed work and restores focus after cancel or Escape', async () => {
+    const frames = controlAnimationFrames()
+    desktopApi.listWorks = vi.fn().mockResolvedValue([completed, failed])
+    render(<WorksPage />)
+
+    const deleteButton = await screen.findByRole('button', { name: '删除失败任务：失败样片' })
+    expect(screen.queryByRole('button', { name: '删除失败任务：为什么你的内容看起来很努力，却没有增长' })).not.toBeInTheDocument()
+    fireEvent.click(deleteButton)
+    expect(screen.getByRole('dialog', { name: '删除失败任务？' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(desktopApi.deleteFailedWork).not.toHaveBeenCalled()
+    frames.flushAll()
+    expect(deleteButton).toHaveFocus()
+
+    fireEvent.click(deleteButton)
+    const dialog = screen.getByRole('dialog', { name: '删除失败任务？' })
+    fireEvent(dialog, new Event('cancel', { bubbles: false, cancelable: true }))
+    frames.flushAll()
+    expect(screen.queryByRole('dialog', { name: '删除失败任务？' })).not.toBeInTheDocument()
+    expect(deleteButton).toHaveFocus()
+  })
+
+  it('deletes once, disables confirmation while pending, refreshes and announces success', async () => {
+    let resolveDelete!: () => void
+    desktopApi.listWorks = vi.fn().mockResolvedValueOnce([failed]).mockResolvedValueOnce([])
+    desktopApi.deleteFailedWork = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveDelete = resolve }))
+    render(<WorksPage />)
+    fireEvent.click(await screen.findByRole('button', { name: '删除失败任务：失败样片' }))
+    const confirm = screen.getByRole('button', { name: '确认删除' })
+
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(desktopApi.deleteFailedWork).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '正在删除…' })).toBeDisabled()
+    resolveDelete()
+
+    expect(await screen.findByText('失败任务已删除。')).toBeInTheDocument()
+    expect(screen.queryByText('失败样片')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '删除失败任务？' })).not.toBeInTheDocument()
+    expect(desktopApi.listWorks).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a failed deletion open and allows retry', async () => {
+    desktopApi.listWorks = vi.fn().mockResolvedValue([failed])
+    desktopApi.deleteFailedWork = vi.fn()
+      .mockRejectedValueOnce(new Error('cleanup failed'))
+      .mockResolvedValueOnce(undefined)
+    render(<WorksPage />)
+    fireEvent.click(await screen.findByRole('button', { name: '删除失败任务：失败样片' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('删除失败，请稍后重试。')
+    expect(screen.getByRole('dialog', { name: '删除失败任务？' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(desktopApi.deleteFailedWork).toHaveBeenCalledTimes(2))
   })
 
   it('coalesces burst events into one trailing refresh and ends on the newest state', async () => {
