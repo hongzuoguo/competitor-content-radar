@@ -1,5 +1,29 @@
 import ffmpegPath from 'ffmpeg-static'
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+
+type PathExists = (path: string) => boolean
+
+export function resolveFfmpegBinaryPath(
+  configuredPath: string | null,
+  exists: PathExists = existsSync
+): string {
+  if (typeof configuredPath === 'string' && exists(configuredPath)) return configuredPath
+
+  const unpackedPath = configuredPath?.replace(
+    /(^|[\\/])app\.asar(?=[\\/])/,
+    '$1app.asar.unpacked'
+  )
+  if (unpackedPath && unpackedPath !== configuredPath && exists(unpackedPath)) return unpackedPath
+
+  const cause = Object.assign(new Error('Configured ffmpeg binary was not found.'), {
+    configuredPath,
+    unpackedPath: unpackedPath === configuredPath ? undefined : unpackedPath
+  })
+  throw Object.assign(new Error('FFMPEG_BINARY_MISSING', { cause }), {
+    code: 'FFMPEG_BINARY_MISSING'
+  })
+}
 
 export function buildWavArguments(inputPath: string, outputPath: string): string[] {
   return [
@@ -17,11 +41,10 @@ export function buildWavArguments(inputPath: string, outputPath: string): string
   ]
 }
 
-export function extractWav(inputPath: string, outputPath: string): Promise<void> {
-  if (typeof ffmpegPath !== 'string') return Promise.reject(new Error('FFMPEG_BINARY_MISSING'))
-  const binaryPath = ffmpegPath
+export async function extractWav(inputPath: string, outputPath: string): Promise<void> {
+  const binaryPath = resolveFfmpegBinaryPath(ffmpegPath)
 
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const child = spawn(binaryPath, buildWavArguments(inputPath, outputPath), { windowsHide: true })
     let errorOutput = ''
     child.stdout.resume()

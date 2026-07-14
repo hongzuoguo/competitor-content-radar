@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildWavArguments } from '../../src/services/media/ffmpeg'
+import { buildWavArguments, resolveFfmpegBinaryPath } from '../../src/services/media/ffmpeg'
 import { cleanupExpiredMedia, createMediaCleanupOptions, normalizeMediaRetentionDays } from '../../src/services/media/cleanup'
 
 describe('local media handling', () => {
@@ -26,6 +26,50 @@ describe('local media handling', () => {
       'pcm_s16le',
       'output.wav'
     ])
+  })
+
+  it('uses the configured ffmpeg path when it exists', () => {
+    const configuredPath = 'C:\\project\\node_modules\\ffmpeg-static\\ffmpeg.exe'
+
+    expect(resolveFfmpegBinaryPath(configuredPath, (path) => path === configuredPath)).toBe(configuredPath)
+  })
+
+  it.each([
+    [
+      'C:\\Program Files\\Content Radar\\resources\\app.asar\\node_modules\\ffmpeg-static\\ffmpeg.exe',
+      'C:\\Program Files\\Content Radar\\resources\\app.asar.unpacked\\node_modules\\ffmpeg-static\\ffmpeg.exe'
+    ],
+    [
+      '/opt/content-radar/resources/app.asar/node_modules/ffmpeg-static/ffmpeg',
+      '/opt/content-radar/resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg'
+    ]
+  ])('uses the unpacked ffmpeg path for a missing packaged path', (configuredPath, unpackedPath) => {
+    expect(resolveFfmpegBinaryPath(configuredPath, (path) => path === unpackedPath)).toBe(unpackedPath)
+  })
+
+  it('reports a stable error when neither packaged ffmpeg path exists', () => {
+    const configuredPath = 'C:\\app\\resources\\app.asar\\node_modules\\ffmpeg-static\\ffmpeg.exe'
+    const checkedPaths: string[] = []
+
+    expect(() => resolveFfmpegBinaryPath(configuredPath, (path) => {
+      checkedPaths.push(path)
+      return false
+    })).toThrow(expect.objectContaining({ message: 'FFMPEG_BINARY_MISSING', code: 'FFMPEG_BINARY_MISSING' }))
+    expect(checkedPaths).toEqual([
+      configuredPath,
+      'C:\\app\\resources\\app.asar.unpacked\\node_modules\\ffmpeg-static\\ffmpeg.exe'
+    ])
+  })
+
+  it('does not rewrite filenames that only contain text resembling app.asar', () => {
+    const configuredPath = 'C:\\app\\resources\\my-app.asar-backup\\ffmpeg.exe'
+    const checkedPaths: string[] = []
+
+    expect(() => resolveFfmpegBinaryPath(configuredPath, (path) => {
+      checkedPaths.push(path)
+      return false
+    })).toThrow('FFMPEG_BINARY_MISSING')
+    expect(checkedPaths).toEqual([configuredPath])
   })
 
   it('accepts safe retention boundaries and falls back to seven days', () => {
