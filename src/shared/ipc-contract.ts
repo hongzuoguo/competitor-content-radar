@@ -1,4 +1,5 @@
 import type { HighlightReason } from '../core/highlight-rules'
+import type { AnalysisResult } from '../services/ai/analysis-schema'
 
 export const IPC_CHANNELS = {
   appMetadata: 'app:metadata',
@@ -19,6 +20,7 @@ export const IPC_CHANNELS = {
   importStart: 'imports:start',
   importRetry: 'imports:retry',
   workList: 'works:list',
+  workGet: 'works:get',
   workDeleteFailed: 'works:delete-failed',
   workStateChanged: 'works:state-changed',
   workFocusRequested: 'works:focus-requested'
@@ -66,6 +68,17 @@ export interface WorkListItem {
   relativeViralIndex: number | null
   referenceValueScore: number | null
   reasons: HighlightReason[]
+}
+
+export interface WorkDetail extends WorkListItem {
+  originalUrl: string | null
+  comments: number
+  shares: number
+  collects: number
+  transcript: string | null
+  analysis: AnalysisResult | null
+  analysisProvider: string | null
+  analyzedAt: string | null
 }
 
 export type UpdateState =

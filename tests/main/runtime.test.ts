@@ -388,6 +388,57 @@ describe('desktop runtime assembly', () => {
     ])
   })
 
+  it('returns a typed work detail assembled from persisted relations', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.creators.create({ id: 'creator-1', platform: 'douyin', name: 'Alice', profileUrl: 'https://www.douyin.com/user/alice', enabled: true, createdAt: '2026-01-01T00:00:00.000Z' })
+    repositories.works.upsert({ id: 'detail-1', creatorId: 'creator-1', platformWorkId: '1', sourceType: 'douyin_monitor', sourceKey: 'douyin:detail-1', mediaPath: null, title: 'Detail', publishedAt: '2026-01-02T00:00:00.000Z', originalUrl: 'https://www.douyin.com/video/detail-1', downloadUrl: null, metrics: { likes: 12000, comments: 34, shares: 56, collects: 78 } })
+    const result = {
+      topicAngle: 'angle', openingHook: { quote: 'quote', type: 'type', mechanism: 'mechanism' },
+      structure: ['one'], viralPoints: ['point'], interactionGuidance: 'guide', highlights: ['highlight'],
+      reusablePatterns: ['pattern'], differentiatedSuggestions: { angles: [], titles: [], openings: [], risks: [] },
+      referenceValueScore: 91, referenceValueReason: 'reason'
+    }
+    repositories.analyses.save({ workId: 'detail-1', transcript: 'analysis transcript', result, provider: 'deepseek', model: 'chat', promptVersion: 'v1', tokenUsage: null, createdAt: '2026-01-03T00:00:00.000Z' })
+    repositories.artifacts.save({ workId: 'detail-1', wavPath: 'detail.wav', transcript: 'artifact transcript', existingWorkId: null, updatedAt: '2026-01-02T12:00:00.000Z' })
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
+
+    await expect(runtime.getWork('detail-1')).resolves.toEqual(expect.objectContaining({
+      id: 'detail-1', creatorName: 'Alice', originalUrl: 'https://www.douyin.com/video/detail-1',
+      likes: 12000, comments: 34, shares: 56, collects: 78,
+      transcript: 'analysis transcript', analysis: result, analysisProvider: 'deepseek', analyzedAt: '2026-01-03T00:00:00.000Z'
+    }))
+  })
+
+  it('returns null for an unknown work detail id', async () => {
+    const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() })
+
+    await expect(runtime.getWork('missing')).resolves.toBeNull()
+  })
+
+  it('notifies live work listeners after each monitored work and snapshot are persisted', async () => {
+    const discovered: Work = {
+      id: 'monitored-1', creatorId: '', platformWorkId: '1', sourceType: 'douyin_monitor', sourceKey: 'douyin:monitored-1',
+      mediaPath: null, title: 'Monitored', publishedAt: new Date().toISOString(), originalUrl: 'https://www.douyin.com/video/1',
+      downloadUrl: null, metrics: { likes: 1, comments: 2, shares: 3, collects: 4 }
+    }
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(async (creatorId: string) => [{ ...discovered, creatorId }]), processWork: vi.fn(), login: vi.fn()
+    })
+    const listener = vi.fn(() => {
+      const repositories = new AppRepositories(database.connection)
+      expect(repositories.works.get('monitored-1')).not.toBeNull()
+      expect(repositories.snapshots.listByWork('monitored-1')).toHaveLength(1)
+    })
+    runtime.onWorkStateChanged(() => { throw new Error('listener failed') })
+    runtime.onWorkStateChanged(listener)
+    await runtime.addCreator('https://www.douyin.com/user/live-monitor')
+
+    await runtime.runNow('daily')
+    await vi.waitFor(() => expect(runtime.isBusinessIdle()).toBe(true))
+
+    expect(listener).toHaveBeenCalledWith('monitored-1')
+  })
+
   it('reads a real persisted import failure without losing its stable code or creator id', async () => {
     const repositories = new AppRepositories(database.connection)
     repositories.creators.create({ id: 'creator-1', platform: 'douyin', name: 'Alice', profileUrl: 'https://www.douyin.com/user/alice', enabled: true, createdAt: '2026-01-01T00:00:00.000Z' })
@@ -430,7 +481,9 @@ describe('desktop runtime assembly', () => {
     const runtime = new DesktopRuntime(database, { discover: vi.fn(), processWork: vi.fn(), login: vi.fn() }, imports)
     const listener = vi.fn()
     const stop = runtime.onWorkStateChanged(listener)
-    expect(imports.subscribe).toHaveBeenCalledWith(listener)
+    const bridge = vi.mocked(imports.subscribe).mock.calls[0][0]
+    bridge('import-1')
+    expect(listener).toHaveBeenCalledWith('import-1')
     stop()
     expect(unsubscribe).toHaveBeenCalledOnce()
   })

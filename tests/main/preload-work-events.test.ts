@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ on: vi.fn(), removeListener: vi.fn(), invoke: vi.fn(), exposedApi: undefined as
   { onWorkStateChanged(listener: (workId: string) => void): () => void
     onWorkFocusRequested(listener: (request: { workId: string; requestId: string }) => void): () => void
+    getWork(workId: string): Promise<unknown>
     startImport(request: unknown): Promise<unknown>
     deleteFailedWork(workId: string): Promise<void>
     getPathForFile(file: File): string } | undefined,
@@ -34,6 +35,14 @@ describe('preload work events', () => {
     unsubscribe()
 
     expect(mocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.workStateChanged, handler)
+  })
+
+  it('invokes the exact work-detail channel', async () => {
+    mocks.invoke.mockResolvedValueOnce({ id: 'work-1' })
+
+    await expect(mocks.exposedApi!.getWork('work-1')).resolves.toEqual({ id: 'work-1' })
+
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.workGet, 'work-1')
   })
 
   it('removes the exact handler registered for notification work focus', () => {

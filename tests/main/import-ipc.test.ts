@@ -14,7 +14,7 @@ function dependencies(): IpcDependencies {
   return {
     getDashboard: vi.fn(), runNow: vi.fn(), listCreators: vi.fn(), addCreator: vi.fn(),
     deleteCreator: vi.fn(), toggleCreator: vi.fn(), loginDouyin: vi.fn(), getSettings: vi.fn(),
-    saveSettings: vi.fn(), startImport: vi.fn(), retryImport: vi.fn(), deleteFailedWork: vi.fn(), listWorks: vi.fn()
+    saveSettings: vi.fn(), startImport: vi.fn(), retryImport: vi.fn(), deleteFailedWork: vi.fn(), listWorks: vi.fn(), getWork: vi.fn()
   }
 }
 

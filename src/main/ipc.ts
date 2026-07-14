@@ -1,7 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
 import { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type CreatorView, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkListItem } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type CreatorView, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type PublicSettings, type UpdateState, type WorkDetail, type WorkListItem } from '../shared/ipc-contract'
 
 export interface IpcDependencies {
   getDashboard(): Promise<DashboardData>
@@ -17,6 +17,7 @@ export interface IpcDependencies {
   retryImport(workId: string): Promise<ImportStartResult>
   deleteFailedWork(workId: string): Promise<void>
   listWorks(): Promise<WorkListItem[]>
+  getWork(id: string): Promise<WorkDetail | null>
 }
 
 export interface UpdateIpcDependencies {
@@ -72,6 +73,10 @@ export function registerIpcHandlers(dependencies: IpcDependencies, updates?: Upd
     return dependencies.retryImport(value.trim())
   }))
   ipcMain.handle(IPC_CHANNELS.workList, () => dependencies.listWorks())
+  ipcMain.handle(IPC_CHANNELS.workGet, (_event, value: unknown) => {
+    if (typeof value !== 'string' || !value.trim()) throw new Error('INVALID_WORK_ID')
+    return dependencies.getWork(value.trim())
+  })
   ipcMain.handle(IPC_CHANNELS.workDeleteFailed, async (_event, value: unknown): Promise<DeleteFailedWorkInvokeResult> => {
     try {
       if (typeof value !== 'string' || !value.trim()) throw codedError('INVALID_WORK_DELETE', 'A work id is required.')

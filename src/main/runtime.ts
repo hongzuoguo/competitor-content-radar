@@ -5,7 +5,8 @@ import { nextDailyRun } from './scheduler'
 import { normalizeCreatorUrl, selectBaselineWorks, selectRecentWorks } from '../services/douyin/normalizers'
 import { AppRepositories, type AnalysisRecord, type RunRecord } from '../services/database/repositories'
 import type { AppDatabase } from '../services/database/database'
-import type { CreatorView, DashboardData, PublicSettings, WorkListItem } from '../shared/ipc-contract'
+import type { CreatorView, DashboardData, PublicSettings, WorkDetail, WorkListItem } from '../shared/ipc-contract'
+import type { AnalysisResult } from '../services/ai/analysis-schema'
 import { isImportRetryable, type ImportRequest, type ImportService, type ImportStartResult } from '../services/import/import-service'
 
 export interface ProcessedWork {
@@ -38,6 +39,8 @@ export class DesktopRuntime {
   private readonly repositories: AppRepositories
   private running = false
   private readonly idleListeners = new Set<() => void>()
+  private readonly workStateListeners = new Set<(workId: string) => void>()
+  private unsubscribeImportEvents: (() => void) | null = null
   private lastRunAt: string | null = null
   private runState: DashboardData['run'] = {
     status: 'idle',
@@ -71,7 +74,27 @@ export class DesktopRuntime {
   }
 
   onWorkStateChanged(listener: (workId: string) => void): () => void {
-    return this.imports?.subscribe(listener) ?? (() => undefined)
+    this.workStateListeners.add(listener)
+    if (!this.unsubscribeImportEvents && this.imports) {
+      this.unsubscribeImportEvents = this.imports.subscribe((workId) => this.emitWorkStateChanged(workId))
+    }
+    return () => {
+      this.workStateListeners.delete(listener)
+      if (this.workStateListeners.size === 0) {
+        this.unsubscribeImportEvents?.()
+        this.unsubscribeImportEvents = null
+      }
+    }
+  }
+
+  private emitWorkStateChanged(workId: string): void {
+    for (const listener of this.workStateListeners) {
+      try {
+        listener(workId)
+      } catch (error) {
+        this.ports.report?.('error', '浣滃搧鐘舵€佺洃鍚櫒澶辫触', { workId, error })
+      }
+    }
   }
 
   async listWorks(): Promise<WorkListItem[]> {
@@ -122,6 +145,26 @@ export class DesktopRuntime {
         reasons: evaluation.reasons
       }
     })
+  }
+
+  async getWork(id: string): Promise<WorkDetail | null> {
+    const work = this.repositories.works.get(id)
+    if (!work) return null
+    const listItem = (await this.listWorks()).find((candidate) => candidate.id === id)
+    if (!listItem) return null
+    const artifact = this.repositories.artifacts.get(id)
+    const analysis = this.repositories.analyses.get(id)
+    return {
+      ...listItem,
+      originalUrl: work.originalUrl,
+      comments: work.metrics.comments,
+      shares: work.metrics.shares,
+      collects: work.metrics.collects,
+      transcript: analysis?.transcript ?? artifact?.transcript ?? null,
+      analysis: analysis ? analysis.result as AnalysisResult : null,
+      analysisProvider: analysis?.provider ?? null,
+      analyzedAt: analysis?.createdAt ?? null
+    }
   }
 
   async listCreators(): Promise<CreatorView[]> {
@@ -236,6 +279,7 @@ export class DesktopRuntime {
               id: randomUUID(), workId: work.id, capturedAt: new Date().toISOString(), metrics: work.metrics
             })
           })
+          this.emitWorkStateChanged(work.id)
           discoveredCount += 1
         }
         if (settings.providerId && settings.modelId) {

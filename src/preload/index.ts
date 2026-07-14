@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { APP_METADATA } from '../shared/app-metadata'
-import { IPC_CHANNELS, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkFocusRequest, type WorkListItem } from '../shared/ipc-contract'
+import { IPC_CHANNELS, type DashboardData, type DeleteFailedWorkInvokeResult, type ImportInvokeResult, type ImportRequest, type ImportStartResult, type UpdateState, type WorkDetail, type WorkFocusRequest, type WorkListItem } from '../shared/ipc-contract'
 import type { CreatorView, PublicSettings } from '../shared/ipc-contract'
 
 export interface DesktopApi {
@@ -24,6 +24,7 @@ export interface DesktopApi {
   retryImport: (workId: string) => Promise<ImportStartResult>
   deleteFailedWork: (workId: string) => Promise<void>
   listWorks: () => Promise<WorkListItem[]>
+  getWork: (workId: string) => Promise<WorkDetail | null>
   onWorkStateChanged: (listener: (workId: string) => void) => () => void
   onWorkFocusRequested: (listener: (request: WorkFocusRequest) => void) => () => void
 }
@@ -53,6 +54,7 @@ const desktopApi: DesktopApi = {
   retryImport: (workId) => invokeImport(IPC_CHANNELS.importRetry, workId),
   deleteFailedWork: (workId) => invokeDeleteFailedWork(workId),
   listWorks: () => ipcRenderer.invoke(IPC_CHANNELS.workList),
+  getWork: (workId) => ipcRenderer.invoke(IPC_CHANNELS.workGet, workId),
   onWorkStateChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, workId: string): void => listener(workId)
     ipcRenderer.on(IPC_CHANNELS.workStateChanged, handler)
