@@ -536,6 +536,41 @@ describe('Douyin public share resolver', () => {
     }))
   }, 200)
 
+  it('classifies a fetch rejection from the attempt abort signal as ATTEMPT_TIMEOUT', async () => {
+    const signals: AbortSignal[] = []
+    const fetcher = vi.fn<typeof fetch>((_input, init) => {
+      const signal = init?.signal as AbortSignal
+      signals.push(signal)
+      if (signals.length === 2) return Promise.resolve(response(routerHtml(video())))
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    })
+    const report = vi.fn()
+
+    await expect(resolvePublicDouyinVideo(ID, {
+      fetcher,
+      attemptTimeoutMs: 5,
+      totalTimeoutMs: 100,
+      retryDelayMs: 0,
+      report
+    })).resolves.toMatchObject({ source: 'share_router' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(signals[0]).not.toBe(signals[1])
+    expect(report).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      source: 'share_router',
+      attempt: 1,
+      outcome: 'request_failed',
+      resultCode: 'ATTEMPT_TIMEOUT'
+    }))
+    expect(report).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      source: 'share_router',
+      attempt: 2,
+      outcome: 'success',
+      resultCode: 'SUCCESS'
+    }))
+  })
+
   it('stops the whole endpoint chain at totalTimeoutMs', async () => {
     const fetcher = vi.fn<typeof fetch>(() => new Promise(() => undefined))
 
