@@ -172,15 +172,85 @@ async function readLimitedBody(response: Response, maxBodyBytes: number): Promis
 }
 
 function parseRouterData(html: string): unknown | null {
-  const scripts = html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)
-  for (const match of scripts) {
-    const script = match[1]
+  for (const script of extractScriptBodies(html)) {
     const start = findRouterObjectStart(script)
     if (start < 0) continue
     const parsed = parseJsonObject(script, start)
     if (parsed) return parsed
   }
   return null
+}
+
+function extractScriptBodies(html: string): string[] {
+  const scripts: string[] = []
+  let searchFrom = 0
+
+  while (searchFrom < html.length) {
+    const start = findScriptStart(html, searchFrom)
+    if (start < 0) break
+    const contentStart = findTagEnd(html, start + '<script'.length)
+    if (contentStart < 0) break
+    const closing = findScriptClosingTag(html, contentStart)
+    if (!closing) break
+    scripts.push(html.slice(contentStart, closing.start))
+    searchFrom = closing.end
+  }
+  return scripts
+}
+
+function findScriptStart(html: string, searchFrom: number): number {
+  let start = indexOfAsciiCaseInsensitive(html, '<script', searchFrom)
+  while (start >= 0) {
+    const boundary = html[start + '<script'.length] ?? ''
+    if (!boundary || /[\s/>]/.test(boundary)) return start
+    start = indexOfAsciiCaseInsensitive(html, '<script', start + '<script'.length)
+  }
+  return -1
+}
+
+function findTagEnd(html: string, start: number): number {
+  let quote: "'" | '"' | null = null
+  let escaped = false
+  for (let index = start; index < html.length; index += 1) {
+    const character = html[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = null
+    } else if (character === "'" || character === '"') quote = character
+    else if (character === '>') return index + 1
+  }
+  return -1
+}
+
+function findScriptClosingTag(
+  html: string,
+  searchFrom: number
+): { start: number; end: number } | null {
+  let start = indexOfAsciiCaseInsensitive(html, '</script', searchFrom)
+  while (start >= 0) {
+    let cursor = start + '</script'.length
+    while (/\s/.test(html[cursor] ?? '')) cursor += 1
+    if (html[cursor] === '>') return { start, end: cursor + 1 }
+    start = indexOfAsciiCaseInsensitive(html, '</script', start + '</script'.length)
+  }
+  return null
+}
+
+function indexOfAsciiCaseInsensitive(source: string, needle: string, searchFrom: number): number {
+  for (let start = searchFrom; start <= source.length - needle.length; start += 1) {
+    let matches = true
+    for (let offset = 0; offset < needle.length; offset += 1) {
+      const code = source.charCodeAt(start + offset)
+      const folded = code >= 65 && code <= 90 ? code + 32 : code
+      if (folded !== needle.charCodeAt(offset)) {
+        matches = false
+        break
+      }
+    }
+    if (matches) return start
+  }
+  return -1
 }
 
 function findRouterObjectStart(script: string): number {

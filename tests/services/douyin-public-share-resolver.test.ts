@@ -128,6 +128,34 @@ describe('Douyin public share resolver', () => {
     await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
   })
 
+  it.each(["'", '"'])('does not treat script attribute text after > as script code (%s quote)', async (quote) => {
+    const assignment = `window._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}`
+    const body = `<script data-doc=${quote}>${assignment}${quote}></script>`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
+  it('still parses a real assignment after quoted script attributes', async () => {
+    const body = `<script data-doc="> is attribute text"> window._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}</script>`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
+  })
+
+  it('keeps script offsets stable after Unicode text with expanding case folds', async () => {
+    const body = `İ<script>window._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}</script>`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
+  })
+
   it('accepts a whitespace-delimited assignment in a later script', async () => {
     const body = `<script>const first = {};</script><script>window._ROUTER_DATA \n\t = \n ${JSON.stringify({
       loaderData: { 'video_(id)/page': { item: video() } }
