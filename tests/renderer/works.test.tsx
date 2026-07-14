@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../src/preload'
-import type { WorkListItem } from '../../src/shared/ipc-contract'
+import type { WorkDetail, WorkListItem } from '../../src/shared/ipc-contract'
 import { WorksPage } from '../../src/renderer/src/pages/WorksPage'
 import { stableWorkErrorMessage } from '../../src/renderer/src/features/works/WorkStatusRow'
 
@@ -53,6 +53,10 @@ function createDesktopApi(works: WorkListItem[] = [completed]): DesktopApi {
   unsubscribe = vi.fn()
   return {
     listWorks: vi.fn().mockResolvedValue(works),
+    getWork: vi.fn().mockImplementation(async (id: string): Promise<WorkDetail | null> => {
+      const work = works.find((item) => item.id === id)
+      return work ? { ...work, originalUrl: null, comments: 0, shares: 0, collects: 0, transcript: null, analysis: null, analysisProvider: null, analyzedAt: null } : null
+    }),
     onWorkStateChanged: vi.fn((listener: (workId: string) => void) => { emitWorkChange = listener; return unsubscribe }),
     retryImport: vi.fn().mockResolvedValue({ accepted: true, workId: 'work-failed' }),
     deleteFailedWork: vi.fn().mockResolvedValue(undefined),
@@ -89,12 +93,11 @@ describe('work analysis library', () => {
     desktopApi.listWorks = vi.fn().mockResolvedValue([completed, processing, failed])
     render(<WorksPage />)
     expect(await screen.findByText('本地样片')).toBeInTheDocument()
-    expect(screen.getByText('正在 AI 拆解')).toBeInTheDocument()
-    expect(screen.getByRole('progressbar', { name: '本地样片处理进度' })).not.toHaveAttribute('aria-valuenow')
-    expect(screen.getByText('AI 拆解失败')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /本地样片.*正在 AI 拆解/ })).toBeInTheDocument()
     expect(screen.getByText('AI 服务暂时不可用，请稍后重试。')).toBeInTheDocument()
     expect(screen.queryByText('Import processing failed.')).not.toBeInTheDocument()
-    expect(screen.getByText('18,642')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(completed.title) }))
+    expect(await screen.findByText('18,642')).toBeInTheDocument()
   })
 
   it('retries only a retryable failed work and prevents duplicate clicks', async () => {
@@ -163,7 +166,7 @@ describe('work analysis library', () => {
     fireEvent.click(await screen.findByRole('button', { name: '删除失败任务：失败样片' }))
 
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('删除失败，请稍后重试。')
+    expect(await screen.findByText('删除失败，请稍后重试。')).toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: '删除失败任务？' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(desktopApi.deleteFailedWork).toHaveBeenCalledTimes(2))
@@ -226,22 +229,23 @@ describe('work analysis library', () => {
     expect(await screen.findByText(completed.title)).toBeInTheDocument()
     emitWorkChange?.(completed.id)
     expect(await screen.findByText('作品刷新失败，已保留上次结果。')).toBeInTheDocument()
-    expect(screen.getByText(completed.title)).toBeInTheDocument()
+    expect(screen.getAllByText(completed.title).length).toBeGreaterThan(0)
     expect(screen.queryByText('作品加载失败')).not.toBeInTheDocument()
   })
 
-  it('preserves highlight filters and adds processing and failed filters', async () => {
+  it('filters worthwhile and viral works without hiding operational states from all', async () => {
     desktopApi.listWorks = vi.fn().mockResolvedValue([completed, processing, failed])
     render(<WorksPage />)
     await screen.findByText(completed.title)
-    fireEvent.click(screen.getByRole('button', { name: '处理中' }))
-    expect(screen.getByText('本地样片')).toBeInTheDocument()
-    expect(screen.queryByText(completed.title)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '失败' }))
-    expect(screen.getByText('失败样片')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '只看高点赞' }))
-    expect(screen.getByText(completed.title)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '值得看' }))
+    expect(screen.getAllByText(completed.title).length).toBeGreaterThan(0)
     expect(screen.queryByText('本地样片')).not.toBeInTheDocument()
+    expect(screen.queryByText('失败样片')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '爆款' }))
+    expect(screen.getAllByText(completed.title).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '全部' }))
+    expect(screen.getByText('本地样片')).toBeInTheDocument()
+    expect(screen.getByText('失败样片')).toBeInTheDocument()
   })
 
   it('ignores historical duplicates on initial loads and unrelated events', async () => {
@@ -249,15 +253,10 @@ describe('work analysis library', () => {
     desktopApi.listWorks = vi.fn().mockResolvedValue([historical, completed])
     render(<WorksPage />)
     await screen.findByText(completed.title)
-    fireEvent.click(screen.getByRole('button', { name: '只看高点赞' }))
-    const search = screen.getByRole('textbox', { name: '搜索作品' })
-    fireEvent.change(search, { target: { value: '增长' } })
-    search.focus()
+    fireEvent.click(screen.getByRole('button', { name: '值得看' }))
     emitWorkChange?.('another-work')
     await waitFor(() => expect(desktopApi.listWorks).toHaveBeenCalledTimes(2))
-    expect(search).toHaveFocus()
-    expect(search).toHaveValue('增长')
-    expect(screen.getByRole('button', { name: '只看高点赞' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '值得看' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByText('已存在相同作品，已为你定位到原作品。')).not.toBeInTheDocument()
   })
 
@@ -282,20 +281,16 @@ describe('work analysis library', () => {
     expect(screen.queryByText('已存在相同作品，已为你定位到原作品。')).not.toBeInTheDocument()
     emitWorkChange?.(pending.id)
     expect(await screen.findByText('已存在相同作品，已为你定位到原作品。')).toBeInTheDocument()
-    expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus()
+    expect(screen.getByRole('button', { name: new RegExp(completed.title) })).toHaveFocus()
     expect(frames.pending()).toBe(0)
     frames.flushAll()
-    expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus()
-    const search = screen.getByRole('textbox', { name: '搜索作品' })
-    search.focus()
+    expect(screen.getByRole('button', { name: new RegExp(completed.title) })).toHaveFocus()
+    const selectedWork = screen.getByRole('button', { name: new RegExp(completed.title) })
+    selectedWork.focus()
     emitWorkChange?.(pending.id)
     await waitFor(() => expect(desktopApi.listWorks).toHaveBeenCalledTimes(5))
-    expect(search).toHaveFocus()
-    fireEvent.click(screen.getByRole('button', { name: '处理中' }))
-    search.focus()
-    fireEvent.click(screen.getByRole('button', { name: '全部' }))
-    expect(screen.getByText(completed.title)).toBeInTheDocument()
-    expect(search).toHaveFocus()
+    expect(selectedWork).toHaveFocus()
+    expect(screen.getAllByText(completed.title).length).toBeGreaterThan(0)
   })
 
   it('moves focus from the import button to a duplicate resolved after restoration', async () => {
@@ -319,7 +314,7 @@ describe('work analysis library', () => {
     expect(trigger).toHaveFocus()
     resolveDuplicate([duplicate, completed])
     expect(await screen.findByText('已存在相同作品，已为你定位到原作品。')).toBeInTheDocument()
-    expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus()
+    expect(screen.getByRole('button', { name: new RegExp(completed.title) })).toHaveFocus()
   })
 
   it('shows only the primary empty state when storage contains duplicate placeholders', async () => {
@@ -348,6 +343,8 @@ describe('work analysis library', () => {
       { id: 'creator-1', name: '重复名称', profileUrl: 'https://www.douyin.com/user/test', enabled: true, works: 1, lastRun: '刚刚', status: 'ready' }
     ])
     render(<WorksPage />)
+    const duplicateNames = await screen.findAllByRole('button', { name: /^重复名称/ })
+    fireEvent.click(duplicateNames[1])
     fireEvent.click(await screen.findByRole('button', { name: '改为上传本地视频' }))
     await waitFor(() => expect(desktopApi.pickLocalVideo).toHaveBeenCalledOnce())
     expect(await screen.findByRole('dialog', { name: '导入作品' })).toBeInTheDocument()
@@ -385,16 +382,12 @@ describe('work analysis library', () => {
     desktopApi.listWorks = vi.fn().mockResolvedValueOnce([failedThenCompleted]).mockResolvedValue([completed])
     const view = render(<WorksPage focusRequest={{ workId: completed.id, requestId: 'request-1' }} />)
 
-    const row = await screen.findByRole('row', { name: new RegExp(completed.title) })
+    const row = await screen.findByRole('button', { name: new RegExp(`^${completed.title}`) })
     await waitFor(() => expect(row).toHaveFocus())
-    expect(screen.getByText('AI 拆解失败')).toBeInTheDocument()
-    const search = screen.getByRole('textbox', { name: '搜索作品' })
-    fireEvent.change(search, { target: { value: '不会匹配' } })
-    search.focus()
+    expect(screen.getByText('AI 服务暂时不可用，请稍后重试。')).toBeInTheDocument()
     emitWorkChange?.(completed.id)
     view.rerender(<WorksPage focusRequest={{ workId: completed.id, requestId: 'request-2' }} />)
-    await waitFor(() => expect(screen.getByRole('row', { name: new RegExp(completed.title) })).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole('button', { name: new RegExp(`^${completed.title}`) })).toHaveFocus())
     expect(screen.getByText('18,642')).toBeInTheDocument()
-    expect(search).toHaveValue('')
   })
 })

@@ -1,20 +1,19 @@
-import { Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreatorView, ImportStartResult, WorkFocusRequest, WorkListItem } from '../../../shared/ipc-contract'
 import { Button } from '../components/Button'
 import { ImportWorkDialog, type CreatorLoadState } from '../features/works/ImportWorkDialog'
-import { WorkStatusRow } from '../features/works/WorkStatusRow'
+import { CreatorRail } from '../features/works/CreatorRail'
+import { SubscriptionWorkList } from '../features/works/SubscriptionWorkList'
+import { WorkInspector } from '../features/works/WorkInspector'
 import './workspace-pages.css'
 
-type WorkFilter = 'all' | 'high-likes' | 'viral' | 'value' | 'processing' | 'failed'
 type LoadState = 'loading' | 'ready' | 'failed'
 
 export function WorksPage({ onImportAccepted, focusRequest }: {
   onImportAccepted?(result: ImportStartResult): void
   focusRequest?: WorkFocusRequest
 } = {}): React.JSX.Element {
-  const [filter, setFilter] = useState<WorkFilter>('all')
-  const [query, setQuery] = useState('')
   const [allWorks, setAllWorks] = useState<WorkListItem[]>([])
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [importOpen, setImportOpen] = useState(false)
@@ -25,6 +24,9 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
   const [message, setMessage] = useState('')
   const [refreshWarning, setRefreshWarning] = useState('')
   const [focusedWorkId, setFocusedWorkId] = useState<string>()
+  const [selectedCreatorId, setSelectedCreatorId] = useState<string | null>(null)
+  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null)
+  const [detailRevision, setDetailRevision] = useState(0)
   const [pendingDelete, setPendingDelete] = useState<WorkListItem | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -71,6 +73,7 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
             : []
           if (!mountedRef.current) return
           setAllWorks(nextWorks)
+          setDetailRevision((current) => current + 1)
           setLoadState('ready')
           setRefreshWarning('')
           hasSuccessfulLoadRef.current = true
@@ -80,9 +83,10 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
           if (duplicate?.existingWorkId && nextWorks.some((work) => work.id === duplicate.existingWorkId)) {
             pendingImportIdRef.current = undefined
             cancelFocusRestore()
+            const existing = nextWorks.find((work) => work.id === duplicate.existingWorkId)
+            if (existing?.creatorId) setSelectedCreatorId(existing.creatorId)
+            setSelectedWorkId(duplicate.existingWorkId)
             setFocusedWorkId(duplicate.existingWorkId)
-            setFilter('all')
-            setQuery('')
             setMessage('已存在相同作品，已为你定位到原作品。')
           }
         } catch {
@@ -101,6 +105,7 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
   useEffect(() => {
     mountedRef.current = true
     void refreshWorks(true)
+    void loadCreators()
     const unsubscribe = typeof window.desktopApi?.onWorkStateChanged === 'function'
       ? window.desktopApi.onWorkStateChanged((workId) => { void refreshWorks(false, workId) })
       : () => undefined
@@ -113,6 +118,11 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
   }, [cancelFocusRestore, refreshWorks])
 
   useEffect(() => {
+    if (selectedCreatorId && creators.some((creator) => creator.id === selectedCreatorId && creator.enabled)) return
+    setSelectedCreatorId(creators.find((creator) => creator.enabled)?.id ?? null)
+  }, [creators, selectedCreatorId])
+
+  useEffect(() => {
     const dialog = deleteDialogRef.current
     if (!pendingDelete || !dialog || dialog.open) return
     if (typeof dialog.showModal === 'function') dialog.showModal()
@@ -123,21 +133,26 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
     if (!focusRequest || handledFocusRequestRef.current === focusRequest.requestId) return
     if (!allWorks.some((work) => work.id === focusRequest.workId && work.errorCode !== 'IMPORT_DUPLICATE')) return
     handledFocusRequestRef.current = focusRequest.requestId
-    setFilter('all')
-    setQuery('')
+    const focused = allWorks.find((work) => work.id === focusRequest.workId)
+    if (focused?.creatorId) setSelectedCreatorId(focused.creatorId)
+    setSelectedWorkId(focusRequest.workId)
     setFocusedWorkId(focusRequest.workId)
   }, [allWorks, focusRequest])
 
   const nonDuplicateWorks = useMemo(() => allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE'), [allWorks])
-  const works = useMemo(() => nonDuplicateWorks.filter((work) => {
-    if (!`${work.creatorName}${work.title}`.toLocaleLowerCase('zh-CN').includes(query.trim().toLocaleLowerCase('zh-CN'))) return false
-    if (filter === 'processing') return work.status === 'pending' || work.status === 'running'
-    if (filter === 'failed') return work.status === 'failed'
-    if (filter === 'high-likes') return work.status === 'completed' && work.reasons.includes('absolute_high_likes')
-    if (filter === 'viral') return work.status === 'completed' && work.reasons.includes('relative_viral')
-    if (filter === 'value') return work.status === 'completed' && work.reasons.includes('high_reference_value')
-    return true
-  }), [filter, nonDuplicateWorks, query])
+  const effectiveSelectedCreatorId = creators.some((creator) => creator.id === selectedCreatorId && creator.enabled)
+    ? selectedCreatorId
+    : creators.find((creator) => creator.enabled)?.id ?? null
+  const creatorWorks = useMemo(() => {
+    if (creatorLoadState === 'loading') return []
+    const scoped = effectiveSelectedCreatorId ? nonDuplicateWorks.filter((work) => work.creatorId === effectiveSelectedCreatorId) : nonDuplicateWorks
+    return [...scoped].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
+  }, [creatorLoadState, effectiveSelectedCreatorId, nonDuplicateWorks])
+
+  useEffect(() => {
+    if (selectedWorkId && creatorWorks.some((work) => work.id === selectedWorkId)) return
+    setSelectedWorkId(creatorWorks[0]?.id ?? null)
+  }, [creatorWorks, selectedWorkId])
 
   function openImport(options: { creatorId?: string | null; localPath?: string } = {}): void {
     cancelFocusRestore()
@@ -145,12 +160,10 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
     setInitialLocalPath(options.localPath)
     setImportOpen(true)
     setMessage('')
-    void loadCreators()
   }
 
   async function loadCreators(): Promise<void> {
-    setCreatorLoadState('loading')
-    setCreators([])
+    if (creators.length === 0) setCreatorLoadState('loading')
     if (!window.desktopApi) { setCreatorLoadState('failed'); return }
     try {
       setCreators(await window.desktopApi.listCreators())
@@ -219,6 +232,7 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
       await window.desktopApi.deleteFailedWork(work.id)
       if (!mountedRef.current) return
       setAllWorks((current) => current.filter((item) => item.id !== work.id))
+      setSelectedWorkId((current) => current === work.id ? null : current)
       setPendingDelete(null)
       setMessage('失败任务已删除。')
       cancelFocusRestore()
@@ -237,29 +251,18 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
 
   return (
     <div className="page workspace-page">
-      <header className="page-heading"><div><h1>作品分析</h1><p>按表现信号筛选作品，沉淀可复用的选题、钩子和结构。</p></div><div className="page-heading__actions"><Button icon={<SlidersHorizontal size={16} />} variant="secondary">管理视图</Button><Button icon={<Plus size={16} />} onClick={() => openImport()} ref={importButtonRef}>导入作品</Button></div></header>
+      <header className="page-heading"><div><h1>订阅工作台</h1><p>每天查看博主新作、表现信号和可复用的内容方法。</p></div><div className="page-heading__actions"><Button icon={<Plus size={16} />} onClick={() => openImport()} ref={importButtonRef}>导入作品</Button></div></header>
       {message ? <p aria-live="polite" className="page-message">{message}</p> : null}
       {refreshWarning ? <p aria-live="polite" className="page-message">{refreshWarning}</p> : null}
-      <div className="filter-bar">
-        <div className="segmented" role="group" aria-label="作品筛选">
-          <FilterButton current={filter} id="all" onSelect={setFilter}>全部</FilterButton>
-          <FilterButton current={filter} id="high-likes" onSelect={setFilter}>只看高点赞</FilterButton>
-          <FilterButton current={filter} id="viral" onSelect={setFilter}>相对爆款</FilterButton>
-          <FilterButton current={filter} id="value" onSelect={setFilter}>高借鉴价值</FilterButton>
-          <FilterButton current={filter} id="processing" onSelect={setFilter}>处理中</FilterButton>
-          <FilterButton current={filter} id="failed" onSelect={setFilter}>失败</FilterButton>
-        </div>
-        <label className="search-field"><Search size={15} aria-hidden="true" /><span className="visually-hidden">搜索作品</span><input aria-label="搜索作品" onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或博主" value={query} /></label>
-      </div>
-
       <div aria-label="作品表格区域" className="works-focus-region" ref={worksAreaRef} role="region" tabIndex={-1}>
         {loadState === 'loading' ? <WorksLoading /> : null}
         {loadState === 'failed' ? <div className="works-state" role="alert"><strong>作品加载失败</strong><span>无法读取本地作品记录，请稍后重试。</span><Button onClick={() => void refreshWorks(true)} variant="secondary">重新加载</Button></div> : null}
         {loadState === 'ready' && nonDuplicateWorks.length === 0 ? <div className="works-state"><strong>还没有作品</strong><span>导入本地视频或单条抖音作品，完成后会在这里显示拆解结果。</span><Button onClick={() => openImport()}>导入第一个作品</Button></div> : null}
-        {loadState === 'ready' && nonDuplicateWorks.length > 0 && works.length === 0 ? <div className="works-state"><strong>没有符合条件的作品</strong><span>可以更换筛选条件或搜索关键词。</span></div> : null}
-        {loadState === 'ready' && works.length > 0 ? (
-          <div className="table-wrap"><table className="data-table works-table"><thead><tr><th>作品</th><th>发布时间</th><th>点赞量</th><th>相对爆款</th><th>借鉴评分</th><th>判断与进度</th><th><span className="visually-hidden">操作</span></th></tr></thead><tbody>{works.map((work) => <WorkStatusRow focusOnRender={focusedWorkId === work.id} key={work.id} onDeleteRequest={requestDelete} onFocusConsumed={(workId) => setFocusedWorkId((current) => current === workId ? undefined : current)} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} work={work} />)}</tbody></table></div>
-        ) : null}
+        {loadState === 'ready' && nonDuplicateWorks.length > 0 ? <div className="subscription-workspace">
+          <CreatorRail creators={creators} onSelect={(id) => { setSelectedCreatorId(id); setSelectedWorkId(null) }} selectedId={effectiveSelectedCreatorId} />
+          <SubscriptionWorkList focusId={focusedWorkId} onDeleteRequest={requestDelete} onFocusConsumed={(workId) => setFocusedWorkId((current) => current === workId ? undefined : current)} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} onSelect={setSelectedWorkId} selectedId={selectedWorkId} works={creatorWorks} />
+          <WorkInspector revision={detailRevision} workId={selectedWorkId} />
+        </div> : null}
       </div>
       {importOpen ? <ImportWorkDialog creatorLoadState={creatorLoadState} creators={creators} initialCreatorId={initialCreatorId} initialLocalPath={initialLocalPath} onAccepted={acceptImport} onClose={closeImport} onRetryCreators={() => void loadCreators()} /> : null}
       {pendingDelete ? (
@@ -275,10 +278,6 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
       ) : null}
     </div>
   )
-}
-
-function FilterButton({ children, current, id, onSelect }: { children: React.ReactNode; current: WorkFilter; id: WorkFilter; onSelect(filter: WorkFilter): void }): React.JSX.Element {
-  return <button aria-pressed={current === id} onClick={() => onSelect(id)} type="button">{children}</button>
 }
 
 function WorksLoading(): React.JSX.Element {
