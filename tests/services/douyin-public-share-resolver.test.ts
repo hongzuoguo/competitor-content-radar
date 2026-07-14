@@ -169,6 +169,58 @@ describe('Douyin public share resolver', () => {
     expect(fetcher).toHaveBeenCalledTimes(4)
   })
 
+  it('does not assign Open Graph metadata after redirecting the share page to a different work', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(new Response(null, {
+        status: 302,
+        headers: { location: 'https://www.douyin.com/share/video/999' }
+      }))
+      .mockResolvedValueOnce(response('<meta property="og:title" content="wrong work">'))
+      .mockResolvedValueOnce(jsonResponse({ item_list: [video()] }))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ source: 'iteminfo_api' })
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      `https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=${ID}`,
+      expect.any(Object)
+    )
+  })
+
+  it('accepts Open Graph metadata after a canonical redirect that keeps the same work ID', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(new Response(null, {
+        status: 302,
+        headers: { location: `https://www.douyin.com/video/${ID}?from=share` }
+      }))
+      .mockResolvedValueOnce(response('<meta content="same work" property="og:title">'))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({
+      title: 'same work',
+      source: 'share_page'
+    })
+    expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
+  it.each([
+    'https://evil.example/share/video/1',
+    'https://user:secret@www.douyin.com/share/video/1',
+    'https://www.douyin.com:444/share/video/1'
+  ])('keeps redirect host and authority guards on the share-page fallback: %s', async (location) => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location } }))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).rejects.toMatchObject({
+      code: 'DOUYIN_PUBLIC_SHARE_UNSAFE_REDIRECT'
+    })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
   it('continues to the next endpoint when reading a response stream fails', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(brokenStreamResponse())

@@ -153,8 +153,11 @@ async function resolveEndpoint(
   maxBodyBytes: number
 ): Promise<PublicDouyinVideo | null> {
   let response: Response
+  let finalUrl: URL
   try {
-    response = await fetchWithRedirects(endpoint.url, fetcher, signal)
+    const fetched = await fetchWithRedirects(endpoint.url, fetcher, signal)
+    response = fetched.response
+    finalUrl = fetched.finalUrl
   } catch (error) {
     if (error instanceof PublicShareError || error instanceof DouyinRiskControlError) throw error
     throw new EndpointRequestFailedError()
@@ -185,7 +188,9 @@ async function resolveEndpoint(
     }
   }
   if (!payload) {
-    const title = endpoint.source === 'share_page' ? parseSharePageTitle(body) : null
+    const title = endpoint.source === 'share_page' && hasExpectedWorkIdentity(finalUrl, videoId)
+      ? parseSharePageTitle(body)
+      : null
     return title ? metadataOnlyVideo(videoId, title) : null
   }
   if (isRiskControlText(JSON.stringify(payload))) throw new DouyinRiskControlError()
@@ -220,7 +225,7 @@ async function fetchWithRedirects(
   initialUrl: string,
   fetcher: typeof fetch,
   signal: AbortSignal
-): Promise<Response> {
+): Promise<{ response: Response; finalUrl: URL }> {
   let currentUrl = new URL(initialUrl)
   for (let redirects = 0; ; redirects += 1) {
     const response = await fetcher(currentUrl.href, {
@@ -229,7 +234,9 @@ async function fetchWithRedirects(
       signal,
       headers: { 'user-agent': MOBILE_USER_AGENT }
     })
-    if (![301, 302, 303, 307, 308].includes(response.status)) return response
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return { response, finalUrl: currentUrl }
+    }
 
     await response.body?.cancel().catch(() => undefined)
     if (redirects >= MAX_REDIRECTS) {
@@ -248,6 +255,19 @@ async function fetchWithRedirects(
     }
     currentUrl = nextUrl
   }
+}
+
+function hasExpectedWorkIdentity(url: URL, videoId: string): boolean {
+  const identities: string[] = []
+  const pathMatch = /^\/(?:share\/)?video\/(\d+)\/?$/.exec(url.pathname)
+  if (pathMatch) identities.push(pathMatch[1])
+
+  const modalIds = url.searchParams.getAll('modal_id')
+  if (modalIds.length > 0) {
+    if (modalIds.length !== 1 || !/^\d+$/.test(modalIds[0])) return false
+    identities.push(modalIds[0])
+  }
+  return identities.length > 0 && identities.every((identity) => identity === videoId)
 }
 
 function isAllowedShareUrl(url: URL): boolean {
