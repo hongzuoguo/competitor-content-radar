@@ -38,7 +38,10 @@ export async function downloadMedia(
     throw new MediaDownloadError('DOUYIN_DOWNLOAD_FAILED', `MEDIA_DOWNLOAD_HTTP_${response.status}`)
   }
 
-  if (response.status === 206 && contentRangeStart(response.headers.get('content-range')) !== offset) {
+  const contentRange = response.status === 206
+    ? completeTailContentRange(response.headers.get('content-range'))
+    : null
+  if (response.status === 206 && (!contentRange || contentRange.start !== offset)) {
     await response.body.cancel().catch(() => undefined)
     throw new MediaDownloadError('MEDIA_DOWNLOAD_INVALID_CONTENT_RANGE')
   }
@@ -48,13 +51,19 @@ export async function downloadMedia(
     Readable.fromWeb(response.body as never),
     createWriteStream(destination, { flags: append ? 'a' : 'w' })
   )
+  if (contentRange && statSync(destination).size !== contentRange.total) {
+    throw new MediaDownloadError('DOUYIN_DOWNLOAD_FAILED', 'MEDIA_DOWNLOAD_SIZE_MISMATCH')
+  }
 }
 
-function contentRangeStart(value: string | null): number | null {
-  const match = /^bytes (\d+)-\d+\/(?:\d+|\*)$/i.exec(value ?? '')
+function completeTailContentRange(value: string | null): { start: number; total: number } | null {
+  const match = /^bytes (\d+)-(\d+)\/(\d+)$/i.exec(value ?? '')
   if (!match) return null
   const start = Number(match[1])
-  return Number.isSafeInteger(start) ? start : null
+  const end = Number(match[2])
+  const total = Number(match[3])
+  if (![start, end, total].every(Number.isSafeInteger) || start > end || end !== total - 1) return null
+  return { start, total }
 }
 
 async function fetchMedia(

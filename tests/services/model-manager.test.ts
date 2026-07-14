@@ -130,7 +130,7 @@ describe('SenseVoice model manager', () => {
     await expect(manager.ensureFile(
       { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
       destination
-    )).rejects.toBe(failure)
+    )).rejects.toMatchObject({ code: 'MODEL_PREPARATION_FAILED', message: 'MODEL_DOWNLOAD_TRANSPORT_FAILED' })
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
@@ -147,7 +147,7 @@ describe('SenseVoice model manager', () => {
     await expect(manager.ensureFile(
       { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
       destination
-    )).rejects.toThrow('MODEL_DOWNLOAD_HTTP_503')
+    )).rejects.toMatchObject({ code: 'MODEL_PREPARATION_FAILED', message: 'MODEL_DOWNLOAD_HTTP_503' })
     expect(fetcher).toHaveBeenCalledTimes(1)
     expect(cancel).toHaveBeenCalledTimes(1)
   })

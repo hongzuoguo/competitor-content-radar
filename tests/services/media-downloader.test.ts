@@ -145,6 +145,8 @@ describe('media downloader URL safety', () => {
   it.each([
     [5, 'bytes 4-9/10'],
     [0, 'bytes 5-9/10'],
+    [5, 'bytes 5-8/10'],
+    [5, 'bytes 5-9/*'],
     [5, null]
   ] as const)('rejects an invalid 206 Content-Range for offset %s: %s', async (offset, contentRange) => {
     const path = await destination()
@@ -161,6 +163,22 @@ describe('media downloader URL safety', () => {
       fetcher
     )).rejects.toMatchObject({ code: 'MEDIA_DOWNLOAD_INVALID_CONTENT_RANGE' })
     expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a 206 response when the written file is shorter than the declared total', async () => {
+    const path = await destination()
+    await writeFile(path, '12345')
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('6789', {
+      status: 206,
+      headers: { 'content-range': 'bytes 5-9/10' }
+    }))
+
+    await expect(downloadMedia(
+      'https://v3-web.douyinvod.com/video.mp4',
+      path,
+      fetcher
+    )).rejects.toMatchObject({ code: 'DOUYIN_DOWNLOAD_FAILED', message: 'MEDIA_DOWNLOAD_SIZE_MISMATCH' })
+    expect((await readFile(path)).length).toBe(9)
   })
 
   it.each([null, 'https://['])('reports an invalid redirect Location independently: %s', async (location) => {

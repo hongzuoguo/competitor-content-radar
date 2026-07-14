@@ -16,6 +16,15 @@ async function sha256(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
+class ModelPreparationError extends Error {
+  readonly code = 'MODEL_PREPARATION_FAILED'
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'ModelPreparationError'
+  }
+}
+
 export class ModelManager {
   constructor(private readonly fetchImplementation: typeof fetch = fetch) {}
 
@@ -45,12 +54,17 @@ export class ModelManager {
       offset = 0
     }
 
-    const response = await createTransportRetryFetcher(this.fetchImplementation)(manifest.url, {
-      headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined
-    })
+    let response: Response
+    try {
+      response = await createTransportRetryFetcher(this.fetchImplementation)(manifest.url, {
+        headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined
+      })
+    } catch {
+      throw new ModelPreparationError('MODEL_DOWNLOAD_TRANSPORT_FAILED')
+    }
     if (!response.ok || !response.body) {
       await response.body?.cancel().catch(() => undefined)
-      throw new Error(`MODEL_DOWNLOAD_HTTP_${response.status}`)
+      throw new ModelPreparationError(`MODEL_DOWNLOAD_HTTP_${response.status}`)
     }
 
     const append = offset > 0 && response.status === 206

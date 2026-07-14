@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { ModelManager } from '../../src/services/asr/model-manager'
 import { ProcessingPipeline } from '../../src/services/pipeline/pipeline'
 import { PIPELINE_CONCURRENCY } from '../../src/services/pipeline/job-queue'
 import type { WorkflowStage } from '../../src/core/workflow'
@@ -64,5 +68,34 @@ describe('resumable processing pipeline', () => {
       'work-1',
       expect.objectContaining({ code: 'DOUYIN_AUTH_EXPIRED', retryAt: null })
     )
+  })
+
+  it('records the stable model preparation code from transcription', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-pipeline-model-'))
+    const recordFailure = vi.fn()
+    const manager = new ModelManager(vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed')))
+    const pipeline = new ProcessingPipeline(
+      { getStage: async () => 'audio_extracted', saveStage: vi.fn(), recordFailure },
+      {
+        download: vi.fn(),
+        extractAudio: vi.fn(),
+        transcribe: vi.fn(() => manager.ensureFile(
+          { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
+          join(directory, 'tokens.txt')
+        )),
+        analyze: vi.fn(),
+        sync: vi.fn()
+      }
+    )
+
+    try {
+      await expect(pipeline.process('work-1')).rejects.toMatchObject({ code: 'MODEL_PREPARATION_FAILED' })
+      expect(recordFailure).toHaveBeenCalledWith(
+        'work-1',
+        expect.objectContaining({ code: 'MODEL_PREPARATION_FAILED' })
+      )
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })
