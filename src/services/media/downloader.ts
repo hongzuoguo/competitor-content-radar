@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { createTransportRetryFetcher } from '../network/fetch-with-transport-retry'
 import { isSafeDouyinMediaUrl } from './url-safety'
 
 const MAX_MEDIA_REDIRECTS = 3
@@ -41,8 +42,9 @@ async function fetchMedia(
   fetchImplementation: typeof fetch
 ): Promise<Response> {
   let currentUrl = new URL(initialUrl)
+  const fetchWithRetry = createTransportRetryFetcher(fetchImplementation)
   for (let redirects = 0; ; redirects += 1) {
-    const response = await fetchImplementation(currentUrl.href, {
+    const response = await fetchWithRetry(currentUrl.href, {
       credentials: 'omit',
       redirect: 'manual',
       headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined
@@ -56,10 +58,11 @@ async function fetchMedia(
     const location = response.headers.get('location')
     let nextUrl: URL
     try {
-      if (!location) throw new Error('missing location')
+      if (!location) throw new MediaDownloadError('MEDIA_DOWNLOAD_INVALID_REDIRECT')
       nextUrl = new URL(location, currentUrl)
-    } catch {
-      throw new MediaDownloadError('UNSAFE_MEDIA_URL')
+    } catch (error) {
+      if (error instanceof MediaDownloadError) throw error
+      throw new MediaDownloadError('MEDIA_DOWNLOAD_INVALID_REDIRECT')
     }
     if (!isSafeDouyinMediaUrl(nextUrl.href)) throw new MediaDownloadError('UNSAFE_MEDIA_URL')
     currentUrl = nextUrl

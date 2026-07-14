@@ -49,4 +49,56 @@ describe('SenseVoice model manager', () => {
       )
     ).rejects.toThrow('MODEL_CHECKSUM_MISMATCH')
   })
+
+  it('retries a transport failure while downloading a small tokens file', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
+    directories.push(directory)
+    const destination = join(directory, 'tokens.txt')
+    const expected = Buffer.from('a\nb\n')
+    const fetcher = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response(expected, { status: 200 }))
+    const manager = new ModelManager(fetcher)
+
+    await manager.ensureFile(
+      {
+        url: 'https://example.test/tokens.txt',
+        size: expected.length,
+        sha256: createHash('sha256').update(expected).digest('hex')
+      },
+      destination
+    )
+
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(readFileSync(destination)).toEqual(expected)
+  })
+
+  it('stops after three model transport failures', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
+    directories.push(directory)
+    const destination = join(directory, 'tokens.txt')
+    const failure = new TypeError('fetch failed')
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(failure)
+    const manager = new ModelManager(fetcher)
+
+    await expect(manager.ensureFile(
+      { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
+      destination
+    )).rejects.toBe(failure)
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not retry a model HTTP failure', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'radar-model-'))
+    directories.push(directory)
+    const destination = join(directory, 'tokens.txt')
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('unavailable', { status: 503 }))
+    const manager = new ModelManager(fetcher)
+
+    await expect(manager.ensureFile(
+      { url: 'https://example.test/tokens.txt', size: 4, sha256: '0'.repeat(64) },
+      destination
+    )).rejects.toThrow('MODEL_DOWNLOAD_HTTP_503')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
 })

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { createTransportRetryFetcher } from '../network/fetch-with-transport-retry'
 
 export interface ModelFileManifest {
   url: string
@@ -35,7 +36,7 @@ export class ModelManager {
       offset = 0
     }
 
-    const response = await this.fetchImplementation(manifest.url, {
+    const response = await createTransportRetryFetcher(this.fetchImplementation)(manifest.url, {
       headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined
     })
     if (!response.ok || !response.body) throw new Error(`MODEL_DOWNLOAD_HTTP_${response.status}`)
