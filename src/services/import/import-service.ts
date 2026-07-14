@@ -9,7 +9,7 @@ import type { ImportedMedia } from './local-file-source'
 import { ConcurrencyGate, PIPELINE_CONCURRENCY } from '../pipeline/job-queue'
 import { ImportError } from './import-errors'
 import type { ImportRequest, ImportStartResult } from '../../shared/ipc-contract'
-import { removeManagedWorkDirectory } from '../media/remove-work-directory'
+import { removeManagedWorkDirectory as defaultRemoveManagedWorkDirectory } from '../media/remove-work-directory'
 export type { ImportRequest, ImportStartResult } from '../../shared/ipc-contract'
 
 type AnalysisOutput = Omit<ProcessedWork, 'transcript'>
@@ -42,6 +42,7 @@ export interface ImportServiceDependencies {
   getSettings(): unknown
   notification?: ImportNotificationPort
   afterSettled?(): Promise<void> | void
+  removeManagedWorkDirectory?(mediaRoot: string, workId: string): Promise<void>
   report?(level: 'info' | 'error', message: string, detail?: unknown): void
 }
 
@@ -51,6 +52,7 @@ export class ImportService {
   private readonly active = new Set<string>()
   private readonly activePromises = new Map<string, Promise<void>>()
   private readonly pendingRequests = new Map<string, ImportRequest>()
+  private readonly deleting = new Set<string>()
   private shuttingDown = false
   private readonly downloadGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.download)
   private readonly transcriptionGate = new ConcurrencyGate(PIPELINE_CONCURRENCY.transcription)
@@ -97,6 +99,9 @@ export class ImportService {
 
   async retry(workId: string): Promise<ImportStartResult> {
     if (this.shuttingDown) throw new ImportError('APP_SHUTTING_DOWN', 'The application is shutting down.')
+    if (this.deleting.has(workId)) {
+      throw new ImportError('WORK_DELETE_NOT_ALLOWED', 'This failed work is being deleted.')
+    }
     const job = this.dependencies.repositories.jobs.get(workId)
     const work = this.dependencies.repositories.works.get(workId)
     if (job?.status === 'running' || this.active.has(workId)) throw new ImportError('RUN_ALREADY_ACTIVE', 'This job is already running.')
@@ -110,6 +115,9 @@ export class ImportService {
   }
 
   async deleteFailed(workId: string): Promise<void> {
+    if (this.deleting.has(workId)) {
+      throw new ImportError('WORK_DELETE_NOT_ALLOWED', 'This failed work is already being deleted.')
+    }
     const work = this.dependencies.repositories.works.get(workId)
     const job = this.dependencies.repositories.jobs.get(workId)
     if (!work || !job) {
@@ -119,17 +127,23 @@ export class ImportService {
       throw new ImportError('WORK_DELETE_NOT_ALLOWED', 'Only inactive failed work can be deleted.')
     }
 
+    this.deleting.add(workId)
     try {
-      await removeManagedWorkDirectory(this.dependencies.mediaRoot, workId)
-    } catch (error) {
-      throw new ImportError('FAILED_WORK_FILE_CLEANUP_FAILED', 'Failed work files could not be removed.', { cause: error })
-    }
+      try {
+        const removeWorkDirectory = this.dependencies.removeManagedWorkDirectory ?? defaultRemoveManagedWorkDirectory
+        await removeWorkDirectory(this.dependencies.mediaRoot, workId)
+      } catch (error) {
+        throw new ImportError('FAILED_WORK_FILE_CLEANUP_FAILED', 'Failed work files could not be removed.', { cause: error })
+      }
 
-    this.dependencies.repositories.transaction(() => {
-      this.dependencies.repositories.works.delete(workId)
-    })
-    this.pendingRequests.delete(workId)
-    this.emit(workId)
+      this.dependencies.repositories.transaction(() => {
+        this.dependencies.repositories.works.delete(workId)
+      })
+      this.pendingRequests.delete(workId)
+      this.emit(workId)
+    } finally {
+      this.deleting.delete(workId)
+    }
   }
 
   reconcileInterruptedJobs(): void {

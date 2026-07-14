@@ -458,6 +458,57 @@ describe('ImportService', () => {
     expect(repositories.snapshots.listByWork('failed-work')).toHaveLength(1)
   })
 
+  it('does not allow retry to launch while failed task deletion is awaiting file cleanup', async () => {
+    let releaseCleanup!: () => void
+    const cleanup = new Promise<void>((resolve) => { releaseCleanup = resolve })
+    const removeManagedWorkDirectory = vi.fn(() => cleanup)
+    repositories.works.upsert({
+      id: 'failed-work', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'sha256:delete-race', mediaPath: 'managed/failed-work/video.mp4', title: 'Failed',
+      publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'failed-work', stage: 'downloaded', status: 'failed', attemptCount: 1,
+      nextAttemptAt: null, errorCode: 'MEDIA_FAILED', errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    const deps = dependencies({ removeManagedWorkDirectory })
+    const service = new ImportService(deps)
+
+    const deletion = service.deleteFailed('failed-work')
+    await vi.waitFor(() => expect(removeManagedWorkDirectory).toHaveBeenCalledOnce())
+    await expect(service.deleteFailed('failed-work')).rejects.toMatchObject({ code: 'WORK_DELETE_NOT_ALLOWED' })
+    await expect(service.retry('failed-work')).rejects.toMatchObject({ code: 'WORK_DELETE_NOT_ALLOWED' })
+    expect(deps.processor.extractAudio).not.toHaveBeenCalled()
+
+    releaseCleanup()
+    await deletion
+    expect(repositories.works.get('failed-work')).toBeNull()
+  })
+
+  it('releases the deletion lock when file cleanup fails', async () => {
+    const removeManagedWorkDirectory = vi.fn()
+      .mockRejectedValueOnce(new Error('cleanup failed'))
+      .mockResolvedValueOnce(undefined)
+    repositories.works.upsert({
+      id: 'failed-work', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'sha256:delete-retry', mediaPath: null, title: 'Failed',
+      publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'failed-work', stage: 'discovered', status: 'failed', attemptCount: 1,
+      nextAttemptAt: null, errorCode: 'FAILED', errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    const service = new ImportService(dependencies({ removeManagedWorkDirectory }))
+
+    await expect(service.deleteFailed('failed-work'))
+      .rejects.toMatchObject({ code: 'FAILED_WORK_FILE_CLEANUP_FAILED' })
+    await expect(service.deleteFailed('failed-work')).resolves.toBeUndefined()
+    expect(removeManagedWorkDirectory).toHaveBeenCalledTimes(2)
+    expect(repositories.works.get('failed-work')).toBeNull()
+  })
+
   it('waits for active work during shutdown and rejects new imports', async () => {
     let release!: () => void
     const blocked = new Promise<void>((resolve) => { release = resolve })
