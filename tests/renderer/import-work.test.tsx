@@ -1,7 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render as testingRender, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../src/preload'
 import { WorksPage } from '../../src/renderer/src/pages/WorksPage'
+
+function render(ui: ReactNode): ReturnType<typeof testingRender> {
+  return testingRender(ui, { wrapper: MemoryRouter })
+}
 
 const desktopApi = {
   listCreators: vi.fn(),

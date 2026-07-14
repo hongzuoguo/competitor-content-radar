@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render as testingRender, screen, waitFor, within } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { HashRouter, MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../src/preload'
 import type { CreatorView, WorkDetail, WorkListItem } from '../../src/shared/ipc-contract'
 import { WorksPage } from '../../src/renderer/src/pages/WorksPage'
+import { CreatorRail } from '../../src/renderer/src/features/works/CreatorRail'
+
+function render(ui: ReactNode): ReturnType<typeof testingRender> {
+  return testingRender(ui, { wrapper: MemoryRouter })
+}
 
 const creators: CreatorView[] = [
   { id: 'creator-a', name: '增长实验室', profileUrl: 'https://www.douyin.com/user/a', enabled: true, works: 2, lastRun: '刚刚', status: 'ready' },
@@ -61,7 +68,7 @@ describe('subscription workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /内容手记/ }))
     expect(await screen.findByText('另一位博主作品')).toBeInTheDocument()
-    expect(screen.queryByText('最新作品')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '作品列表' })).queryByText('最新作品')).not.toBeInTheDocument()
   })
 
   it('filters by worthwhile and viral signals and shows all decision labels', async () => {
@@ -75,7 +82,7 @@ describe('subscription workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: '值得看' }))
     expect(screen.queryByText('较早作品')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '爆款' }))
-    expect(screen.getByText('最新作品')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '作品列表' })).getByText('最新作品')).toBeInTheDocument()
   })
 
   it('loads metrics, transcript and the six analysis sections', async () => {
@@ -109,5 +116,69 @@ describe('subscription workspace', () => {
     await waitFor(() => expect(vi.mocked(api.getWork).mock.calls.filter(([id]) => id === 'work-old')).toHaveLength(2))
     expect(screen.getByRole('button', { name: /增长实验室/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: /较早作品/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('keeps local imports and disabled creator works selectable beside subscriptions', async () => {
+    const local = { ...older, id: 'work-local', creatorId: null, creatorName: '未分类作品', title: '本地导入样片', sourceType: 'local_file' as const }
+    const disabled = { id: 'creator-disabled', name: '已停用博主', profileUrl: 'https://www.douyin.com/user/disabled', enabled: false, works: 1, lastRun: '昨天', status: 'attention' as const }
+    const disabledWork = { ...older, id: 'work-disabled', creatorId: disabled.id, creatorName: disabled.name, title: '停用前作品' }
+    installApi([newest, local, disabledWork])
+    vi.mocked(window.desktopApi.listCreators).mockResolvedValue([...creators, disabled])
+    render(<WorksPage focusRequest={{ workId: local.id, requestId: 'focus-local' }} />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /未分类作品/ })).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.getByRole('button', { name: /本地导入样片/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByText('最新作品')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /已停用博主/ }))
+    expect(await screen.findByText('停用前作品')).toBeInTheDocument()
+  })
+
+  it('shows retry failure inline, releases the lock, and allows another attempt', async () => {
+    const failedWork = { ...older, id: 'work-failed-retry', status: 'failed' as const, stage: 'transcribed' as const, retryable: true, errorCode: 'ANALYSIS_FAILED', errorMessage: 'hidden' }
+    installApi([failedWork])
+    vi.mocked(window.desktopApi.listCreators).mockResolvedValue([])
+    vi.mocked(window.desktopApi.retryImport).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ accepted: true, workId: failedWork.id })
+    render(<WorksPage />)
+
+    const retry = await screen.findByRole('button', { name: `重试${failedWork.title}` })
+    fireEvent.click(retry)
+    expect(await screen.findByText('重试未能启动，请稍后再试。')).toHaveAttribute('role', 'alert')
+    expect(retry).toBeEnabled()
+    fireEvent.click(retry)
+    await waitFor(() => expect(window.desktopApi.retryImport).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows formatted likes and the actual processing state on every work row', async () => {
+    installApi([newest, { ...older, id: 'work-running-meta', status: 'running', stage: 'audio_extracted', likes: 321 }])
+    render(<WorksPage />)
+    expect(await screen.findByRole('button', { name: /最新作品.*18,642 点赞.*已完成/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /较早作品.*321 点赞.*正在转成文字/ })).toBeInTheDocument()
+  })
+
+  it('supports complete keyboard tab semantics in the work inspector', async () => {
+    installApi()
+    render(<WorksPage />)
+    const analysis = await screen.findByRole('tab', { name: 'AI 拆解' })
+    const transcript = screen.getByRole('tab', { name: '完整文案' })
+    expect(analysis).toHaveAttribute('aria-controls')
+    expect(document.getElementById(analysis.getAttribute('aria-controls')!)).toHaveAttribute('role', 'tabpanel')
+
+    analysis.focus()
+    fireEvent.keyDown(analysis, { key: 'ArrowRight' })
+    expect(transcript).toHaveFocus()
+    expect(transcript).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: '完整文案' })).toHaveTextContent('这是完整文字稿。')
+    fireEvent.keyDown(transcript, { key: 'End' })
+    expect(screen.getByRole('tab', { name: '数据趋势' })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('tab', { name: '数据趋势' }), { key: 'Home' })
+    expect(analysis).toHaveFocus()
+    fireEvent.keyDown(analysis, { key: 'ArrowLeft' })
+    expect(screen.getByRole('tab', { name: '数据趋势' })).toHaveFocus()
+  })
+
+  it('keeps creator management inside the hash router', () => {
+    window.location.hash = '/works'
+    testingRender(<HashRouter><CreatorRail creators={creators} onSelect={vi.fn()} selectedId="creator-a" works={[newest]} /></HashRouter>)
+    expect(screen.getByRole('link', { name: '添加博主' })).toHaveAttribute('href', '#/creators')
   })
 })

@@ -1,9 +1,15 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render as testingRender, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../src/preload'
 import type { WorkDetail, WorkListItem } from '../../src/shared/ipc-contract'
 import { WorksPage } from '../../src/renderer/src/pages/WorksPage'
 import { stableWorkErrorMessage } from '../../src/renderer/src/features/works/WorkStatusRow'
+
+function render(ui: ReactNode): ReturnType<typeof testingRender> {
+  return testingRender(ui, { wrapper: MemoryRouter })
+}
 
 const completed: WorkListItem = {
   id: 'work-complete', creatorId: 'creator-complete', creatorName: '增长实验室', title: '为什么你的内容看起来很努力，却没有增长',
@@ -92,11 +98,13 @@ describe('work analysis library', () => {
   it('renders completed, processing and failed rows with stable stage labels', async () => {
     desktopApi.listWorks = vi.fn().mockResolvedValue([completed, processing, failed])
     render(<WorksPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /未分类作品/ }))
     expect(await screen.findByText('本地样片')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /本地样片.*正在 AI 拆解/ })).toBeInTheDocument()
     expect(screen.getByText('AI 服务暂时不可用，请稍后重试。')).toBeInTheDocument()
     expect(screen.queryByText('Import processing failed.')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(completed.title) }))
+    fireEvent.click(screen.getByRole('button', { name: /增长实验室/ }))
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(completed.title) }))
     expect(await screen.findByText('18,642')).toBeInTheDocument()
   })
 
@@ -116,6 +124,7 @@ describe('work analysis library', () => {
     desktopApi.listWorks = vi.fn().mockResolvedValue([completed, failed])
     render(<WorksPage />)
 
+    fireEvent.click(await screen.findByRole('button', { name: /未分类作品/ }))
     const deleteButton = await screen.findByRole('button', { name: '删除失败任务：失败样片' })
     expect(screen.queryByRole('button', { name: '删除失败任务：为什么你的内容看起来很努力，却没有增长' })).not.toBeInTheDocument()
     fireEvent.click(deleteButton)
@@ -244,6 +253,7 @@ describe('work analysis library', () => {
     fireEvent.click(screen.getByRole('button', { name: '爆款' }))
     expect(screen.getAllByText(completed.title).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: '全部' }))
+    fireEvent.click(screen.getByRole('button', { name: /未分类作品/ }))
     expect(screen.getByText('本地样片')).toBeInTheDocument()
     expect(screen.getByText('失败样片')).toBeInTheDocument()
   })

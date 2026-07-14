@@ -772,6 +772,7 @@
 
 .subscription-work-row__heading,
 .subscription-work-row__badges,
+.subscription-work-row__meta,
 .subscription-work-row__error {
   display: flex;
   align-items: center;
@@ -798,6 +799,12 @@
   flex-wrap: wrap;
 }
 
+.subscription-work-row__meta {
+  justify-content: space-between;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
 .subscription-work-row__error {
   color: var(--color-danger);
 }
@@ -813,6 +820,12 @@
   width: 28px;
   min-height: 28px;
   padding: 0;
+}
+
+.subscription-work-row__retry-error {
+  margin: 0 8px 10px;
+  color: var(--color-danger);
+  font-size: 12px;
 }
 
 .work-inspector {

@@ -59,6 +59,7 @@ function WorkListRow({ work, selected, focus, onSelect, onFocusConsumed, onRetry
 }): React.JSX.Element {
   const selectRef = useRef<HTMLButtonElement>(null)
   const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState('')
   useEffect(() => {
     if (!focus) return
     selectRef.current?.focus()
@@ -67,7 +68,14 @@ function WorkListRow({ work, selected, focus, onSelect, onFocusConsumed, onRetry
   async function retry(): Promise<void> {
     if (retrying) return
     setRetrying(true)
-    try { await onRetry(work.id) } finally { setRetrying(false) }
+    setRetryError('')
+    try {
+      await onRetry(work.id)
+    } catch {
+      setRetryError('重试未能启动，请稍后再试。')
+    } finally {
+      setRetrying(false)
+    }
   }
   const unavailable = work.errorCode === 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE' || work.errorCode === 'DOUYIN_MEDIA_URL_MISSING'
   return (
@@ -80,7 +88,7 @@ function WorkListRow({ work, selected, focus, onSelect, onFocusConsumed, onRetry
           {work.reasons.includes('relative_viral') ? <StatusBadge tone="warning">相对爆款</StatusBadge> : null}
           {work.reasons.includes('high_reference_value') ? <StatusBadge>高借鉴</StatusBadge> : null}
         </span>
-        {work.status === 'pending' || work.status === 'running' ? <small>处理中 · {runningLabel(work.stage)}</small> : null}
+        <span className="subscription-work-row__meta"><span>{work.likes.toLocaleString('zh-CN')} 点赞</span><span>{workStatusLabel(work)}</span></span>
         {work.status === 'failed' ? <small className="subscription-work-row__error"><AlertCircle size={13} aria-hidden="true" />{stableWorkErrorMessage(work)}</small> : null}
       </button>
       {work.status === 'failed' ? <div className="subscription-work-row__actions">
@@ -88,6 +96,7 @@ function WorkListRow({ work, selected, focus, onSelect, onFocusConsumed, onRetry
         {work.retryable ? <Button aria-label={`重试${work.title}`} disabled={retrying} icon={<RotateCcw size={14} />} onClick={() => void retry()} variant="ghost" /> : null}
         <Button aria-label={`删除失败任务：${work.title}`} icon={<Trash2 size={14} />} onClick={(event) => onDeleteRequest(work, event.currentTarget)} variant="ghost" />
       </div> : null}
+      {retryError ? <p className="subscription-work-row__retry-error" role="alert">{retryError}</p> : null}
     </article>
   )
 }
@@ -123,4 +132,11 @@ function runningLabel(stage: WorkListItem['stage']): string {
   if (stage === 'transcribed') return '正在 AI 拆解'
   if (stage === 'audio_extracted') return '正在转成文字'
   return '正在准备内容'
+}
+
+function workStatusLabel(work: WorkListItem): string {
+  if (work.status === 'pending') return '等待处理'
+  if (work.status === 'running') return runningLabel(work.stage)
+  if (work.status === 'failed') return '处理失败'
+  return '已完成'
 }

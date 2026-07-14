@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreatorView, ImportStartResult, WorkFocusRequest, WorkListItem } from '../../../shared/ipc-contract'
 import { Button } from '../components/Button'
 import { ImportWorkDialog, type CreatorLoadState } from '../features/works/ImportWorkDialog'
-import { CreatorRail } from '../features/works/CreatorRail'
+import { CreatorRail, UNCLASSIFIED_CREATOR_ID } from '../features/works/CreatorRail'
 import { SubscriptionWorkList } from '../features/works/SubscriptionWorkList'
 import { WorkInspector } from '../features/works/WorkInspector'
 import './workspace-pages.css'
@@ -84,7 +84,7 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
             pendingImportIdRef.current = undefined
             cancelFocusRestore()
             const existing = nextWorks.find((work) => work.id === duplicate.existingWorkId)
-            if (existing?.creatorId) setSelectedCreatorId(existing.creatorId)
+            setSelectedCreatorId(existing?.creatorId ?? UNCLASSIFIED_CREATOR_ID)
             setSelectedWorkId(duplicate.existingWorkId)
             setFocusedWorkId(duplicate.existingWorkId)
             setMessage('已存在相同作品，已为你定位到原作品。')
@@ -118,11 +118,6 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
   }, [cancelFocusRestore, refreshWorks])
 
   useEffect(() => {
-    if (selectedCreatorId && creators.some((creator) => creator.id === selectedCreatorId && creator.enabled)) return
-    setSelectedCreatorId(creators.find((creator) => creator.enabled)?.id ?? null)
-  }, [creators, selectedCreatorId])
-
-  useEffect(() => {
     const dialog = deleteDialogRef.current
     if (!pendingDelete || !dialog || dialog.open) return
     if (typeof dialog.showModal === 'function') dialog.showModal()
@@ -134,25 +129,33 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
     if (!allWorks.some((work) => work.id === focusRequest.workId && work.errorCode !== 'IMPORT_DUPLICATE')) return
     handledFocusRequestRef.current = focusRequest.requestId
     const focused = allWorks.find((work) => work.id === focusRequest.workId)
-    if (focused?.creatorId) setSelectedCreatorId(focused.creatorId)
+    setSelectedCreatorId(focused?.creatorId ?? UNCLASSIFIED_CREATOR_ID)
     setSelectedWorkId(focusRequest.workId)
     setFocusedWorkId(focusRequest.workId)
   }, [allWorks, focusRequest])
 
   const nonDuplicateWorks = useMemo(() => allWorks.filter((work) => work.errorCode !== 'IMPORT_DUPLICATE'), [allWorks])
-  const effectiveSelectedCreatorId = creators.some((creator) => creator.id === selectedCreatorId && creator.enabled)
+  const availableCreatorIds = useMemo(() => {
+    const ids = new Set(creators.filter((creator) => creator.enabled).map((creator) => creator.id))
+    for (const work of nonDuplicateWorks) {
+      ids.add(work.creatorId ?? UNCLASSIFIED_CREATOR_ID)
+    }
+    return ids
+  }, [creators, nonDuplicateWorks])
+  const effectiveSelectedCreatorId = selectedCreatorId && availableCreatorIds.has(selectedCreatorId)
     ? selectedCreatorId
-    : creators.find((creator) => creator.enabled)?.id ?? null
+    : creators.find((creator) => creator.enabled)?.id
+      ?? nonDuplicateWorks.find((work) => work.creatorId)?.creatorId
+      ?? (nonDuplicateWorks.some((work) => work.creatorId === null) ? UNCLASSIFIED_CREATOR_ID : null)
   const creatorWorks = useMemo(() => {
-    if (creatorLoadState === 'loading') return []
-    const scoped = effectiveSelectedCreatorId ? nonDuplicateWorks.filter((work) => work.creatorId === effectiveSelectedCreatorId) : nonDuplicateWorks
+    const scoped = effectiveSelectedCreatorId === UNCLASSIFIED_CREATOR_ID
+      ? nonDuplicateWorks.filter((work) => work.creatorId === null)
+      : nonDuplicateWorks.filter((work) => work.creatorId === effectiveSelectedCreatorId)
     return [...scoped].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
-  }, [creatorLoadState, effectiveSelectedCreatorId, nonDuplicateWorks])
-
-  useEffect(() => {
-    if (selectedWorkId && creatorWorks.some((work) => work.id === selectedWorkId)) return
-    setSelectedWorkId(creatorWorks[0]?.id ?? null)
-  }, [creatorWorks, selectedWorkId])
+  }, [effectiveSelectedCreatorId, nonDuplicateWorks])
+  const effectiveSelectedWorkId = selectedWorkId && creatorWorks.some((work) => work.id === selectedWorkId)
+    ? selectedWorkId
+    : creatorWorks[0]?.id ?? null
 
   function openImport(options: { creatorId?: string | null; localPath?: string } = {}): void {
     cancelFocusRestore()
@@ -259,9 +262,9 @@ export function WorksPage({ onImportAccepted, focusRequest }: {
         {loadState === 'failed' ? <div className="works-state" role="alert"><strong>作品加载失败</strong><span>无法读取本地作品记录，请稍后重试。</span><Button onClick={() => void refreshWorks(true)} variant="secondary">重新加载</Button></div> : null}
         {loadState === 'ready' && nonDuplicateWorks.length === 0 ? <div className="works-state"><strong>还没有作品</strong><span>导入本地视频或单条抖音作品，完成后会在这里显示拆解结果。</span><Button onClick={() => openImport()}>导入第一个作品</Button></div> : null}
         {loadState === 'ready' && nonDuplicateWorks.length > 0 ? <div className="subscription-workspace">
-          <CreatorRail creators={creators} onSelect={(id) => { setSelectedCreatorId(id); setSelectedWorkId(null) }} selectedId={effectiveSelectedCreatorId} />
-          <SubscriptionWorkList focusId={focusedWorkId} onDeleteRequest={requestDelete} onFocusConsumed={(workId) => setFocusedWorkId((current) => current === workId ? undefined : current)} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} onSelect={setSelectedWorkId} selectedId={selectedWorkId} works={creatorWorks} />
-          <WorkInspector revision={detailRevision} workId={selectedWorkId} />
+          <CreatorRail creators={creators} onSelect={(id) => { setSelectedCreatorId(id); setSelectedWorkId(null) }} selectedId={effectiveSelectedCreatorId} works={nonDuplicateWorks} />
+          <SubscriptionWorkList focusId={focusedWorkId} onDeleteRequest={requestDelete} onFocusConsumed={(workId) => setFocusedWorkId((current) => current === workId ? undefined : current)} onLocalFallback={(item) => void chooseLocalFallback(item)} onRetry={retryImport} onSelect={setSelectedWorkId} selectedId={effectiveSelectedWorkId} works={creatorWorks} />
+          <WorkInspector revision={detailRevision} workId={effectiveSelectedWorkId} />
         </div> : null}
       </div>
       {importOpen ? <ImportWorkDialog creatorLoadState={creatorLoadState} creators={creators} initialCreatorId={initialCreatorId} initialLocalPath={initialLocalPath} onAccepted={acceptImport} onClose={closeImport} onRetryCreators={() => void loadCreators()} /> : null}
