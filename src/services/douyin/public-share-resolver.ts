@@ -210,13 +210,10 @@ function findScriptStart(html: string, searchFrom: number): number {
 
 function findTagEnd(html: string, start: number): number {
   let quote: "'" | '"' | null = null
-  let escaped = false
   for (let index = start; index < html.length; index += 1) {
     const character = html[index]
     if (quote) {
-      if (escaped) escaped = false
-      else if (character === '\\') escaped = true
-      else if (character === quote) quote = null
+      if (character === quote) quote = null
     } else if (character === "'" || character === '"') quote = character
     else if (character === '>') return index + 1
   }

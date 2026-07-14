@@ -156,6 +156,27 @@ describe('Douyin public share resolver', () => {
     await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
   })
 
+  it('treats a backslash before the closing HTML attribute quote as ordinary text', async () => {
+    const body = `<script data-doc="\\">window._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}</script>`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
+  })
+
+  it('continues to a later script after an attribute ending with backslash text', async () => {
+    const body = [
+      `<script data-doc="\\">const ignored = true;</script>`,
+      `<script>window._ROUTER_DATA = ${JSON.stringify({
+        loaderData: { 'video_(id)/page': { item: video() } }
+      })}</script>`
+    ].join('')
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
+  })
+
   it('accepts a whitespace-delimited assignment in a later script', async () => {
     const body = `<script>const first = {};</script><script>window._ROUTER_DATA \n\t = \n ${JSON.stringify({
       loaderData: { 'video_(id)/page': { item: video() } }
