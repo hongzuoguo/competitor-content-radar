@@ -177,6 +177,28 @@ describe('Douyin public share resolver', () => {
     await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ videoId: ID })
   })
 
+  it.each([
+    (assignment: string) => `<!-- <script>${assignment}</script> -->`,
+    (assignment: string) => `<textarea><script>${assignment}</script></textarea>`,
+    (assignment: string) => `<div data-doc="<script>${assignment}</script>">attribute only</div>`
+  ])('ignores script-looking text outside a real script element %#', async (render) => {
+    const assignment = `window._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(render(assignment)))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
+  it('returns null for malformed HTML instead of throwing', async () => {
+    const body = `<script data-doc="unterminated>window._ROUTER_DATA = ${JSON.stringify({
+      loaderData: { 'video_(id)/page': { item: video() } }
+    })}`
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(body))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toBeNull()
+  })
+
   it('accepts a whitespace-delimited assignment in a later script', async () => {
     const body = `<script>const first = {};</script><script>window._ROUTER_DATA \n\t = \n ${JSON.stringify({
       loaderData: { 'video_(id)/page': { item: video() } }
