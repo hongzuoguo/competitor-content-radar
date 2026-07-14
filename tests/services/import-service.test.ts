@@ -3,6 +3,9 @@ import { AppDatabase } from '../../src/services/database/database'
 import { AppRepositories } from '../../src/services/database/repositories'
 import { ImportService, type ImportServiceDependencies } from '../../src/services/import/import-service'
 import { ImportError } from '../../src/services/import/import-errors'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 describe('ImportService', () => {
   let database: AppDatabase
@@ -299,6 +302,160 @@ describe('ImportService', () => {
     release()
     await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('completed'))
     await expect(service.retry(started.workId)).rejects.toMatchObject({ code: 'JOB_NOT_RETRYABLE' })
+  })
+
+  it('deletes a failed task only after its managed work directory is removed', async () => {
+    const mediaRoot = mkdtempSync(join(tmpdir(), 'radar-import-delete-'))
+    mkdirSync(join(mediaRoot, 'failed-work'))
+    writeFileSync(join(mediaRoot, 'failed-work', 'video.mp4'), 'managed')
+    try {
+      repositories.works.upsert({
+        id: 'failed-work', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+        sourceKey: 'sha256:failed', mediaPath: join(mediaRoot, 'failed-work', 'video.mp4'), title: 'Failed',
+        publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+        metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+      })
+      repositories.jobs.save({
+        workId: 'failed-work', stage: 'downloaded', status: 'failed', attemptCount: 1,
+        nextAttemptAt: null, errorCode: 'MEDIA_FAILED', errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+      })
+      const listener = vi.fn()
+      const service = new ImportService(dependencies({ mediaRoot }))
+      service.subscribe(listener)
+
+      await service.deleteFailed('failed-work')
+
+      expect(repositories.works.get('failed-work')).toBeNull()
+      expect(repositories.jobs.get('failed-work')).toBeNull()
+      expect(listener).toHaveBeenCalledWith('failed-work')
+    } finally {
+      rmSync(mediaRoot, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['pending', 'pending'], ['running', 'running'], ['completed', 'completed']
+  ] as const)('rejects deleting a %s task', async (_label, status) => {
+    repositories.works.upsert({
+      id: `${status}-work`, creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: `sha256:${status}`, mediaPath: null, title: status,
+      publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: `${status}-work`, stage: status === 'completed' ? 'completed' : 'discovered', status,
+      attemptCount: 1, nextAttemptAt: null, errorCode: null, errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    const service = new ImportService(dependencies())
+    await expect(service.deleteFailed(`${status}-work`)).rejects.toMatchObject({ code: 'WORK_DELETE_NOT_ALLOWED' })
+    expect(repositories.works.get(`${status}-work`)).not.toBeNull()
+  })
+
+  it('rejects missing work with a stable code', async () => {
+    const service = new ImportService(dependencies())
+    await expect(service.deleteFailed('missing-work')).rejects.toMatchObject({ code: 'FAILED_WORK_NOT_FOUND' })
+  })
+
+  it('rejects deleting a work whose job record is missing', async () => {
+    repositories.works.upsert({
+      id: 'orphan-work', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'sha256:orphan', mediaPath: null, title: 'Orphan',
+      publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    const service = new ImportService(dependencies())
+    await expect(service.deleteFailed('orphan-work')).rejects.toMatchObject({ code: 'FAILED_WORK_NOT_FOUND' })
+    expect(repositories.works.get('orphan-work')).not.toBeNull()
+  })
+
+  it('rejects deleting active work even if its persisted job is changed to failed', async () => {
+    let rejectPreparation!: (error: Error) => void
+    const preparation = new Promise<never>((_resolve, reject) => { rejectPreparation = reject })
+    const service = new ImportService(dependencies({ ingestLocal: vi.fn(() => preparation) }))
+    const started = await service.start({ source: { type: 'local', path: 'source.mp4' }, creatorId: null })
+    if (!started.accepted) throw new Error('expected accepted import')
+    const job = repositories.jobs.get(started.workId)!
+    repositories.jobs.save({ ...job, status: 'failed', errorCode: 'TEST_FAILURE' })
+
+    await expect(service.deleteFailed(started.workId)).rejects.toMatchObject({ code: 'WORK_DELETE_NOT_ALLOWED' })
+    rejectPreparation(Object.assign(new Error('stop'), { code: 'TEST_FAILURE' }))
+    await service.shutdown()
+  })
+
+  it('deletes a failed database record when its managed directory is already absent', async () => {
+    const mediaRoot = mkdtempSync(join(tmpdir(), 'radar-import-delete-'))
+    try {
+      repositories.works.upsert({
+        id: 'missing-directory', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+        sourceKey: 'sha256:missing-directory', mediaPath: null, title: 'Missing directory',
+        publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+        metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+      })
+      repositories.jobs.save({
+        workId: 'missing-directory', stage: 'discovered', status: 'failed', attemptCount: 1,
+        nextAttemptAt: null, errorCode: 'FAILED', errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+      })
+      const service = new ImportService(dependencies({ mediaRoot }))
+
+      await expect(service.deleteFailed('missing-directory')).resolves.toBeUndefined()
+      expect(repositories.works.get('missing-directory')).toBeNull()
+    } finally {
+      rmSync(mediaRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects deletion after shutdown starts', async () => {
+    repositories.works.upsert({
+      id: 'failed-after-shutdown', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'sha256:failed-after-shutdown', mediaPath: null, title: 'Failed',
+      publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'failed-after-shutdown', stage: 'discovered', status: 'failed', attemptCount: 1,
+      nextAttemptAt: null, errorCode: 'FAILED', errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    const service = new ImportService(dependencies())
+    await service.shutdown()
+
+    await expect(service.deleteFailed('failed-after-shutdown'))
+      .rejects.toMatchObject({ code: 'WORK_DELETE_NOT_ALLOWED' })
+    expect(repositories.works.get('failed-after-shutdown')).not.toBeNull()
+  })
+
+  it('keeps database records when managed file cleanup fails', async () => {
+    repositories.works.upsert({
+      id: 'failed-work', creatorId: null, platformWorkId: null, sourceType: 'local_file',
+      sourceKey: 'sha256:failed-cleanup', mediaPath: null, title: 'Failed',
+      publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'failed-work', stage: 'discovered', status: 'failed', attemptCount: 1,
+      nextAttemptAt: null, errorCode: 'FAILED', errorMessage: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    repositories.artifacts.save({
+      workId: 'failed-work', wavPath: 'managed/failed-work/audio.wav', transcript: 'saved',
+      existingWorkId: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    repositories.analyses.save({
+      workId: 'failed-work', transcript: 'saved', result: {}, provider: 'test', model: 'test',
+      promptVersion: 'v1', tokenUsage: null, createdAt: '2026-07-12T00:00:00.000Z'
+    })
+    repositories.snapshots.create({
+      id: 'failed-work-snapshot', workId: 'failed-work', capturedAt: '2026-07-12T00:00:00.000Z',
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    const service = new ImportService(dependencies({
+      mediaRoot: join(tmpdir(), `definitely-missing-radar-root-${process.pid}-${Date.now()}`)
+    }))
+
+    await expect(service.deleteFailed('failed-work')).rejects.toMatchObject({ code: 'FAILED_WORK_FILE_CLEANUP_FAILED' })
+    expect(repositories.works.get('failed-work')).not.toBeNull()
+    expect(repositories.jobs.get('failed-work')).not.toBeNull()
+    expect(repositories.artifacts.get('failed-work')).not.toBeNull()
+    expect(repositories.analyses.get('failed-work')).not.toBeNull()
+    expect(repositories.snapshots.listByWork('failed-work')).toHaveLength(1)
   })
 
   it('waits for active work during shutdown and rejects new imports', async () => {

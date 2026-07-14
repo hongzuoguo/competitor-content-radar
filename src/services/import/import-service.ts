@@ -9,6 +9,7 @@ import type { ImportedMedia } from './local-file-source'
 import { ConcurrencyGate, PIPELINE_CONCURRENCY } from '../pipeline/job-queue'
 import { ImportError } from './import-errors'
 import type { ImportRequest, ImportStartResult } from '../../shared/ipc-contract'
+import { removeManagedWorkDirectory } from '../media/remove-work-directory'
 export type { ImportRequest, ImportStartResult } from '../../shared/ipc-contract'
 
 type AnalysisOutput = Omit<ProcessedWork, 'transcript'>
@@ -106,6 +107,29 @@ export class ImportService {
     this.emit(workId)
     this.launch(workId, this.pendingRequests.get(workId))
     return { accepted: true, workId }
+  }
+
+  async deleteFailed(workId: string): Promise<void> {
+    const work = this.dependencies.repositories.works.get(workId)
+    const job = this.dependencies.repositories.jobs.get(workId)
+    if (!work || !job) {
+      throw new ImportError('FAILED_WORK_NOT_FOUND', 'The failed work was not found.')
+    }
+    if (this.shuttingDown || this.active.has(workId) || job.status !== 'failed') {
+      throw new ImportError('WORK_DELETE_NOT_ALLOWED', 'Only inactive failed work can be deleted.')
+    }
+
+    try {
+      await removeManagedWorkDirectory(this.dependencies.mediaRoot, workId)
+    } catch (error) {
+      throw new ImportError('FAILED_WORK_FILE_CLEANUP_FAILED', 'Failed work files could not be removed.', { cause: error })
+    }
+
+    this.dependencies.repositories.transaction(() => {
+      this.dependencies.repositories.works.delete(workId)
+    })
+    this.pendingRequests.delete(workId)
+    this.emit(workId)
   }
 
   reconcileInterruptedJobs(): void {

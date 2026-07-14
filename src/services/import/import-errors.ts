@@ -9,6 +9,9 @@ export type ImportErrorCode =
   | 'RUN_ALREADY_ACTIVE'
   | 'INVALID_IMPORT_INPUT'
   | 'APP_SHUTTING_DOWN'
+  | 'FAILED_WORK_NOT_FOUND'
+  | 'WORK_DELETE_NOT_ALLOWED'
+  | 'FAILED_WORK_FILE_CLEANUP_FAILED'
 
 export interface ImportErrorOptions {
   action?: string

@@ -175,6 +175,10 @@ class WorkRepository {
     return row ? mapWork(row) : null
   }
 
+  delete(id: string): void {
+    this.database.prepare('DELETE FROM works WHERE id = ?').run(id)
+  }
+
   setMediaPath(id: string, mediaPath: string): void {
     this.database.prepare('UPDATE works SET media_path = ? WHERE id = ?').run(mediaPath, id)
   }

@@ -251,6 +251,39 @@ describe('SQLite repositories', () => {
     expect(repositories.jobs.get('import-1')?.attemptCount).toBe(2)
   })
 
+  it('deletes a work and cascades its job, artifact, analysis and snapshots', () => {
+    repositories.works.upsert({
+      id: 'failed-work', creatorId: null, platformWorkId: null,
+      sourceType: 'local_file', sourceKey: 'sha256:failed', mediaPath: 'managed/failed-work/video.mp4',
+      title: 'Failed', publishedAt: '2026-07-12T00:00:00.000Z', originalUrl: null, downloadUrl: null,
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+    repositories.jobs.save({
+      workId: 'failed-work', stage: 'transcribed', status: 'failed', attemptCount: 1,
+      nextAttemptAt: null, errorCode: 'AI_FAILED', errorMessage: 'failed', updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    repositories.artifacts.save({
+      workId: 'failed-work', wavPath: 'managed/failed-work/audio.wav', transcript: 'words',
+      existingWorkId: null, updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    repositories.analyses.save({
+      workId: 'failed-work', transcript: 'words', result: {}, provider: 'test', model: 'test',
+      promptVersion: 'v1', tokenUsage: null, createdAt: '2026-07-12T00:00:00.000Z'
+    })
+    repositories.snapshots.create({
+      id: 'failed-snapshot', workId: 'failed-work', capturedAt: '2026-07-12T00:00:00.000Z',
+      metrics: { likes: 0, comments: 0, shares: 0, collects: 0 }
+    })
+
+    repositories.works.delete('failed-work')
+
+    expect(repositories.works.get('failed-work')).toBeNull()
+    expect(repositories.jobs.get('failed-work')).toBeNull()
+    expect(repositories.artifacts.get('failed-work')).toBeNull()
+    expect(repositories.analyses.get('failed-work')).toBeNull()
+    expect(repositories.snapshots.listByWork('failed-work')).toEqual([])
+  })
+
   it('stores metric snapshots, analyses and run summaries', () => {
     repositories.creators.create({
       id: 'creator-1',
