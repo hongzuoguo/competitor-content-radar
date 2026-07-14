@@ -14,12 +14,20 @@ export interface ImportErrorOptions {
   action?: string
   retryable?: boolean
   cause?: unknown
+  partialSource?: PartialImportSource
+}
+
+export interface PartialImportSource {
+  sourceKey: string
+  title: string
+  originalUrl: string
 }
 
 export class ImportError extends Error {
   readonly code: ImportErrorCode
   readonly action?: string
   readonly retryable?: boolean
+  readonly partialSource?: PartialImportSource
 
   constructor(code: ImportErrorCode, message: string, options: ImportErrorOptions = {}) {
     super(message, { cause: options.cause })
@@ -27,5 +35,6 @@ export class ImportError extends Error {
     this.code = code
     this.action = options.action
     this.retryable = options.retryable
+    this.partialSource = options.partialSource
   }
 }

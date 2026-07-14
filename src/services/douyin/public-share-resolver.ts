@@ -26,6 +26,21 @@ export interface PublicShareResolverOptions {
   fetcher?: typeof fetch
   timeoutMs?: number
   maxBodyBytes?: number
+  report?(event: PublicShareDiagnostic): void
+}
+
+export interface PublicShareDiagnostic {
+  videoId: string
+  source: PublicDouyinVideo['source']
+  outcome: 'success' | 'not_found' | 'request_failed'
+  elapsedMs: number
+}
+
+interface PublicEndpoint {
+  url: string
+  source: PublicDouyinVideo['source']
+  format: 'html' | 'json'
+  knownLoaderOnly: boolean
 }
 
 class PublicShareError extends Error {
@@ -61,24 +76,64 @@ export async function resolvePublicDouyinVideo(
   const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs)
 
   try {
-    const response = await fetchWithRedirects(
-      `https://www.iesdouyin.com/share/video/${videoId}`,
-      fetcher,
-      controller.signal
-    )
-    if (!isHtmlResponse(response)) {
-      await response.body?.cancel().catch(() => undefined)
-      return null
+    const endpoints: PublicEndpoint[] = [
+      {
+        url: `https://www.iesdouyin.com/share/video/${videoId}`,
+        source: 'share_router',
+        format: 'html',
+        knownLoaderOnly: true
+      },
+      {
+        url: `https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=${videoId}&aid=6383`,
+        source: 'detail_api',
+        format: 'json',
+        knownLoaderOnly: false
+      },
+      {
+        url: `https://www.douyin.com/share/video/${videoId}`,
+        source: 'share_page',
+        format: 'html',
+        knownLoaderOnly: true
+      },
+      {
+        url: `https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=${videoId}`,
+        source: 'iteminfo_api',
+        format: 'json',
+        knownLoaderOnly: false
+      }
+    ]
+    for (const endpoint of endpoints) {
+      const startedAt = Date.now()
+      let result: PublicDouyinVideo | null
+      try {
+        result = await resolveEndpoint(
+          videoId,
+          endpoint,
+          fetcher,
+          controller.signal,
+          maxBodyBytes
+        )
+      } catch (error) {
+        if (error instanceof EndpointRequestFailedError) {
+          report(options.report, {
+            videoId,
+            source: endpoint.source,
+            outcome: 'request_failed',
+            elapsedMs: Date.now() - startedAt
+          })
+          continue
+        }
+        throw error
+      }
+      report(options.report, {
+        videoId,
+        source: endpoint.source,
+        outcome: result ? 'success' : 'not_found',
+        elapsedMs: Date.now() - startedAt
+      })
+      if (result) return result
     }
-    const body = await readLimitedBody(response, maxBodyBytes)
-    if (isRiskControlText(body)) throw new DouyinRiskControlError()
-    if (!response.ok) return null
-
-    const payload = parseRouterData(body)
-    if (!payload) return null
-    if (isRiskControlText(JSON.stringify(payload))) throw new DouyinRiskControlError()
-    const raw = findKnownLoaderWork(videoId, payload)
-    return raw ? toPublicVideo(videoId, raw) : null
+    return null
   } catch (error) {
     if (controller.signal.aborted && controller.signal.reason === timeoutError) throw timeoutError
     if (error instanceof PublicShareError || error instanceof DouyinRiskControlError) throw error
@@ -88,9 +143,68 @@ export async function resolvePublicDouyinVideo(
   }
 }
 
+class EndpointRequestFailedError extends Error {}
+
+async function resolveEndpoint(
+  videoId: string,
+  endpoint: PublicEndpoint,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+  maxBodyBytes: number
+): Promise<PublicDouyinVideo | null> {
+  let response: Response
+  try {
+    response = await fetchWithRedirects(endpoint.url, fetcher, signal)
+  } catch (error) {
+    if (error instanceof PublicShareError || error instanceof DouyinRiskControlError) throw error
+    throw new EndpointRequestFailedError()
+  }
+  if (response.bodyUsed) return null
+  const expectedContentType = endpoint.format === 'html' ? isHtmlResponse : isJsonResponse
+  if (!expectedContentType(response)) {
+    await response.body?.cancel().catch(() => undefined)
+    return null
+  }
+  const body = await readLimitedBody(response, maxBodyBytes)
+  if (isRiskControlText(body)) throw new DouyinRiskControlError()
+  if (!response.ok) return null
+  let payload: unknown
+  if (endpoint.format === 'html') {
+    payload = parseRouterData(body)
+  } else {
+    try {
+      payload = JSON.parse(body) as unknown
+    } catch {
+      return null
+    }
+  }
+  if (!payload) return null
+  if (isRiskControlText(JSON.stringify(payload))) throw new DouyinRiskControlError()
+  const raw = endpoint.knownLoaderOnly
+    ? findKnownLoaderWork(videoId, payload)
+    : findWorkRecordsFromPayload(videoId, payload)[0] ?? null
+  return raw ? toPublicVideo(videoId, raw, endpoint.source) : null
+}
+
+function report(
+  reporter: PublicShareResolverOptions['report'],
+  event: PublicShareDiagnostic
+): void {
+  try {
+    reporter?.(event)
+  } catch {
+    // Diagnostics are best-effort and cannot change resolver behavior.
+  }
+}
+
 function isHtmlResponse(response: Response): boolean {
   const contentType = response.headers.get('content-type') ?? ''
   return /^text\/html(?:\s*;|\s*$)/i.test(contentType)
+}
+
+function isJsonResponse(response: Response): boolean {
+  const contentType = response.headers.get('content-type') ?? ''
+  return /^(?:application|text)\/(?:[\w.-]+\+)?json(?:\s*;|\s*$)/i.test(contentType)
 }
 
 async function fetchWithRedirects(
@@ -293,7 +407,11 @@ function findKnownLoaderWork(
   return null
 }
 
-function toPublicVideo(videoId: string, raw: Record<string, unknown>): PublicDouyinVideo {
+function toPublicVideo(
+  videoId: string,
+  raw: Record<string, unknown>,
+  source: PublicDouyinVideo['source']
+): PublicDouyinVideo {
   const statistics = asRecord(raw.statistics)
   const author = asRecord(raw.author)
   const video = asRecord(raw.video)
@@ -319,7 +437,7 @@ function toPublicVideo(videoId: string, raw: Record<string, unknown>): PublicDou
       asRecord(video.originCover),
       firstImage
     ), false),
-    source: 'share_router'
+    source
   }
 }
 

@@ -16,6 +16,13 @@ function response(body: string, init: ResponseInit = {}): Response {
   return new Response(body, { status: 200, ...init, headers })
 }
 
+function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
+  return response(JSON.stringify(payload), {
+    ...init,
+    headers: { 'content-type': 'application/json; charset=utf-8', ...init.headers }
+  })
+}
+
 function video(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     aweme_id: ID,
@@ -31,6 +38,73 @@ function video(overrides: Record<string, unknown> = {}): Record<string, unknown>
 }
 
 describe('Douyin public share resolver', () => {
+  it.each([
+    [
+      'detail_api',
+      [response('<html>missing</html>'), jsonResponse({ aweme_detail: video() })],
+      `https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=${ID}&aid=6383`
+    ],
+    [
+      'share_page',
+      [response('<html>missing</html>'), jsonResponse({}), response(routerHtml(video()))],
+      `https://www.douyin.com/share/video/${ID}`
+    ],
+    [
+      'iteminfo_api',
+      [response('<html>missing</html>'), jsonResponse({}), response('<html>missing</html>'), jsonResponse({ item_list: [video()] })],
+      `https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=${ID}`
+    ]
+  ])('falls back serially to %s and reports its source', async (source, responses, finalUrl) => {
+    const fetcher = vi.fn<typeof fetch>()
+    for (const result of responses as Response[]) fetcher.mockResolvedValueOnce(result)
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({
+      videoId: ID,
+      source
+    })
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual((responses as Response[]).map((_response, index) => [
+      `https://www.iesdouyin.com/share/video/${ID}`,
+      `https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=${ID}&aid=6383`,
+      `https://www.douyin.com/share/video/${ID}`,
+      `https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=${ID}`
+    ][index]))
+    expect(fetcher).toHaveBeenLastCalledWith(finalUrl, expect.any(Object))
+  })
+
+  it('ignores a mismatched detail response and stops after the next matching endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({ aweme_detail: video({ aweme_id: '999' }) }))
+      .mockResolvedValueOnce(response(routerHtml(video())))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).resolves.toMatchObject({ source: 'share_page' })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('stops the endpoint chain immediately when a fallback response is risk controlled', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({ message: '访问过于频繁，请完成安全验证' }))
+
+    await expect(resolvePublicDouyinVideo(ID, { fetcher })).rejects.toBeInstanceOf(DouyinRiskControlError)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('requires JSON content type for API responses and enforces the body limit', async () => {
+    const wrongType = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(response(JSON.stringify({ aweme_detail: video() })))
+      .mockResolvedValueOnce(response(routerHtml(video())))
+    await expect(resolvePublicDouyinVideo(ID, { fetcher: wrongType })).resolves.toMatchObject({ source: 'share_page' })
+
+    const tooLarge = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response('<html>missing</html>'))
+      .mockResolvedValueOnce(jsonResponse({}, { headers: { 'content-length': '101', 'content-type': 'application/json' } }))
+    await expect(resolvePublicDouyinVideo(ID, { fetcher: tooLarge, maxBodyBytes: 100 })).rejects.toMatchObject({
+      code: 'DOUYIN_PUBLIC_SHARE_BODY_TOO_LARGE'
+    })
+  })
+
   it('parses a video from window._ROUTER_DATA and sends a constrained request', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(routerHtml(video())))
 
@@ -266,14 +340,21 @@ describe('Douyin public share resolver', () => {
     })
   })
 
-  it('does not expose a sensitive URL from a transport failure', async () => {
+  it('continues past transport failures and reports only sanitized diagnostics', async () => {
     const fetcher = vi.fn<typeof fetch>().mockRejectedValue(
       new Error('request failed https://media.example.com/video?token=secret')
     )
-    const error = await resolvePublicDouyinVideo(ID, { fetcher }).catch((reason: unknown) => reason)
+    const report = vi.fn()
 
-    expect(error).toMatchObject({ code: 'DOUYIN_PUBLIC_SHARE_REQUEST_FAILED' })
-    expect(String(error)).not.toContain('token=secret')
+    await expect(resolvePublicDouyinVideo(ID, { fetcher, report })).resolves.toBeNull()
+    expect(report).toHaveBeenCalledTimes(4)
+    expect(report).toHaveBeenNthCalledWith(1, {
+      videoId: ID,
+      source: 'share_router',
+      outcome: 'request_failed',
+      elapsedMs: expect.any(Number)
+    })
+    expect(JSON.stringify(report.mock.calls)).not.toContain('token=secret')
   })
 
   it('rejects Content-Length above the configured limit', async () => {

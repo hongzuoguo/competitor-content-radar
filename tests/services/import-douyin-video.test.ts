@@ -6,8 +6,65 @@ import {
   resolveDouyinVideo,
   type ShortLinkResolver
 } from '../../src/services/import/douyin-video-source'
+import type { PublicDouyinVideo } from '../../src/services/douyin/public-share-resolver'
+
+const noPublicResult = vi.fn(async (): Promise<PublicDouyinVideo | null> => null)
 
 describe('Douyin video URL import', () => {
+  it('uses public media without opening the browser', async () => {
+    const captureSingleVideo = vi.fn()
+    const resolvePublic = vi.fn().mockResolvedValue({
+      videoId: '7658', title: '公开文案', downloadUrl: 'https://media.example.com/7658.mp4',
+      authorName: '作者', likes: 10, comments: 2, shares: 1, coverUrl: null, source: 'detail_api'
+    })
+
+    await expect(resolveDouyinVideo(
+      'https://www.douyin.com/video/7658',
+      { captureSingleVideo },
+      fetch,
+      resolvePublic
+    )).resolves.toMatchObject({ title: '公开文案', downloadUrl: 'https://media.example.com/7658.mp4' })
+    expect(captureSingleVideo).not.toHaveBeenCalled()
+  })
+
+  it('preserves public metadata while using one browser capture to fill missing media', async () => {
+    const captureSingleVideo = vi.fn().mockResolvedValue({ title: '浏览器文案', downloadUrl: 'https://media.example.com/captured.mp4' })
+    const resolvePublic = vi.fn().mockResolvedValue({
+      videoId: '7658', title: '公开文案', downloadUrl: null,
+      authorName: '作者', likes: 10, comments: 2, shares: 1, coverUrl: null, source: 'share_router'
+    })
+
+    await expect(resolveDouyinVideo(
+      'https://www.douyin.com/user/self?modal_id=7658',
+      { captureSingleVideo },
+      fetch,
+      resolvePublic
+    )).resolves.toMatchObject({ title: '公开文案', downloadUrl: 'https://media.example.com/captured.mp4' })
+    expect(captureSingleVideo).toHaveBeenCalledOnce()
+    expect(captureSingleVideo).toHaveBeenCalledWith('7658', 'https://www.douyin.com/video/7658')
+  })
+
+  it('keeps the existing upload-local error after public metadata and browser media both fail', async () => {
+    const captureSingleVideo = vi.fn().mockResolvedValue({ title: '浏览器文案', downloadUrl: null })
+    const resolvePublic = vi.fn().mockResolvedValue({
+      videoId: '7658', title: '公开文案', downloadUrl: null,
+      authorName: '作者', likes: 10, comments: 2, shares: 1, coverUrl: null, source: 'share_router'
+    })
+
+    const error = await captureError(resolveDouyinVideo(
+      'https://www.douyin.com/video/7658',
+      { captureSingleVideo },
+      fetch,
+      resolvePublic
+    ))
+    expect(error).toMatchObject({ code: 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE', action: 'upload_local' })
+    expect(error.partialSource).toEqual({
+      sourceKey: 'douyin:7658',
+      title: '公开文案',
+      originalUrl: 'https://www.douyin.com/video/7658'
+    })
+    expect(captureSingleVideo).toHaveBeenCalledOnce()
+  })
   it('extracts the target work from a single-video payload', () => {
     const work = extractWorkFromPayload('7658', {
       data: { aweme_detail: { aweme_id: '7658', desc: '示例', video: { play_addr: { url_list: ['https://media.test/7658'] } } } }
@@ -64,7 +121,7 @@ describe('Douyin video URL import', () => {
     )
     const capture = vi.fn().mockResolvedValue({ title: '示例视频', downloadUrl: 'https://media.test/video.mp4' })
 
-    await expect(resolveDouyinVideo('https://v.douyin.com/AbC12/', { captureSingleVideo: capture }, resolver)).resolves.toEqual({
+    await expect(resolveDouyinVideo('https://v.douyin.com/AbC12/', { captureSingleVideo: capture }, resolver, noPublicResult)).resolves.toEqual({
       sourceType: 'douyin_url',
       sourceKey: 'douyin:7658',
       title: '示例视频',
@@ -81,7 +138,7 @@ describe('Douyin video URL import', () => {
       .mockResolvedValueOnce(new Response(null, { status: 301, headers: { location: 'https://www.douyin.com/video/9' } }))
     const capture = { captureSingleVideo: vi.fn().mockResolvedValue({ title: '九', downloadUrl: 'https://media.test/9' }) }
 
-    await expect(resolveDouyinVideo('https://v.douyin.com/First', capture, resolver)).resolves.toMatchObject({ sourceKey: 'douyin:9' })
+    await expect(resolveDouyinVideo('https://v.douyin.com/First', capture, resolver, noPublicResult)).resolves.toMatchObject({ sourceKey: 'douyin:9' })
     expect(resolver).toHaveBeenCalledTimes(2)
     for (const [, init] of resolver.mock.calls) expect(init.credentials).toBe('omit')
   })
@@ -104,7 +161,7 @@ describe('Douyin video URL import', () => {
       .mockResolvedValueOnce(responseWithBody(301, 'https://www.douyin.com/video/9', finalCancel))
     const capture = { captureSingleVideo: vi.fn().mockResolvedValue({ title: 'nine', downloadUrl: 'https://media.test/9' }) }
 
-    await resolveDouyinVideo('https://v.douyin.com/A', capture, resolver)
+    await resolveDouyinVideo('https://v.douyin.com/A', capture, resolver, noPublicResult)
 
     expect(firstCancel).toHaveBeenCalledOnce()
     expect(finalCancel).toHaveBeenCalledOnce()
@@ -146,7 +203,12 @@ describe('Douyin video URL import', () => {
     const captureSingleVideo = outcome instanceof Error
       ? vi.fn().mockRejectedValue(outcome)
       : vi.fn().mockResolvedValue(outcome)
-    const error = await captureError(resolveDouyinVideo('https://www.douyin.com/video/7658', { captureSingleVideo }))
+    const error = await captureError(resolveDouyinVideo(
+      'https://www.douyin.com/video/7658',
+      { captureSingleVideo },
+      fetch,
+      noPublicResult
+    ))
 
     expect(error.code).toBe('DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE')
     expect(error.action).toBe('upload_local')

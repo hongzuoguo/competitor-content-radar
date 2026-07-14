@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppDatabase } from '../../src/services/database/database'
 import { AppRepositories } from '../../src/services/database/repositories'
 import { ImportService, type ImportServiceDependencies } from '../../src/services/import/import-service'
+import { ImportError } from '../../src/services/import/import-errors'
 
 describe('ImportService', () => {
   let database: AppDatabase
@@ -109,6 +110,40 @@ describe('ImportService', () => {
     expect(repositories.jobs.get(started.workId)?.status).toBe('running')
     rejectResolution(Object.assign(new Error('https://signed.example/video?token=private'), { code: 'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE' }))
     await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('failed'))
+  })
+
+  it('keeps resolved Douyin metadata when media remains unavailable', async () => {
+    const error = new ImportError(
+      'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE',
+      '请改为上传本地视频。',
+      {
+        action: 'upload_local',
+        retryable: false,
+        partialSource: {
+          sourceKey: 'douyin:7658',
+          title: '公开文案',
+          originalUrl: 'https://www.douyin.com/video/7658'
+        }
+      }
+    )
+    const service = new ImportService(dependencies({
+      resolveDouyin: vi.fn().mockRejectedValue(error)
+    }))
+
+    const started = await service.start({
+      source: { type: 'douyin_url', url: 'https://www.douyin.com/user/self?modal_id=7658' },
+      creatorId: null
+    })
+    if (!started.accepted) throw new Error('expected accepted import')
+    await vi.waitFor(() => expect(repositories.jobs.get(started.workId)?.status).toBe('failed'))
+
+    expect(repositories.works.get(started.workId)).toMatchObject({
+      sourceKey: 'douyin:7658',
+      title: '公开文案',
+      originalUrl: 'https://www.douyin.com/video/7658',
+      downloadUrl: null
+    })
+    expect(repositories.jobs.get(started.workId)?.errorCode).toBe('DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE')
   })
 
   it('accepts a provisional duplicate then converges to the existing work without processing', async () => {

@@ -182,9 +182,27 @@ export class ImportService {
     if (!work) throw new Error('IMPORT_RECORD_MISSING')
     if (work.sourceKey.startsWith('pending:')) {
       if (!request) throw Object.assign(new Error('Preparation input unavailable'), { code: 'IMPORT_PREPARATION_MISSING' })
-      const source = request.source.type === 'local'
-        ? await this.dependencies.ingestLocal(request.source.path, this.dependencies.mediaRoot)
-        : await this.dependencies.resolveDouyin(request.source.url)
+      let source: ImportedMedia | DouyinVideoDescriptor
+      try {
+        source = request.source.type === 'local'
+          ? await this.dependencies.ingestLocal(request.source.path, this.dependencies.mediaRoot)
+          : await this.dependencies.resolveDouyin(request.source.url)
+      } catch (error) {
+        if (request.source.type === 'douyin_url' && error instanceof ImportError && error.partialSource) {
+          const duplicate = this.dependencies.repositories.works.findBySource('douyin_url', error.partialSource.sourceKey)
+          if (duplicate && duplicate.id !== workId) {
+            this.recordDuplicate(workId, duplicate.id)
+            return
+          }
+          this.dependencies.repositories.works.finalizeSource(workId, {
+            ...error.partialSource,
+            mediaPath: null,
+            downloadUrl: null
+          })
+          this.emit(workId)
+        }
+        throw error
+      }
       const duplicate = this.dependencies.repositories.works.findBySource(source.sourceType, source.sourceKey)
       if (duplicate && duplicate.id !== workId) {
         this.recordDuplicate(workId, duplicate.id)

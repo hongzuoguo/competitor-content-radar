@@ -1,5 +1,9 @@
 import { ImportError } from './import-errors'
 import { parseDouyinWorkUrl } from '../../shared/douyin-work-url'
+import {
+  resolvePublicDouyinVideo,
+  type PublicDouyinVideo
+} from '../douyin/public-share-resolver'
 
 const MAX_SHORT_LINK_REDIRECTS = 5
 
@@ -26,6 +30,7 @@ export interface DouyinVideoDescriptor {
 }
 
 export type ShortLinkResolver = (input: string, init: RequestInit) => Promise<Response>
+export type PublicVideoResolver = (videoId: string) => Promise<PublicDouyinVideo | null>
 
 export function normalizeDouyinVideoUrl(input: string): NormalizedDouyinVideoUrl {
   const parsed = parseDouyinWorkUrl(input)
@@ -37,20 +42,32 @@ export function normalizeDouyinVideoUrl(input: string): NormalizedDouyinVideoUrl
 export async function resolveDouyinVideo(
   input: string,
   capturePort: DouyinVideoCapturePort,
-  shortLinkResolver: ShortLinkResolver = fetch
+  shortLinkResolver: ShortLinkResolver = fetch,
+  publicResolver: PublicVideoResolver = resolvePublicDouyinVideo
 ): Promise<DouyinVideoDescriptor> {
   try {
     const normalized = await resolveInputUrl(input, shortLinkResolver)
-    const captured = await capturePort.captureSingleVideo(normalized.videoId, normalized.canonicalUrl)
-    if (!captured?.downloadUrl) throw new Error('DOUYIN_VIDEO_DOWNLOAD_MISSING')
+    const publicVideo = await publicResolver(normalized.videoId)
+    const captured = publicVideo?.downloadUrl
+      ? null
+      : await capturePort.captureSingleVideo(normalized.videoId, normalized.canonicalUrl)
+    const downloadUrl = publicVideo?.downloadUrl ?? captured?.downloadUrl ?? null
+    if (!downloadUrl) {
+      throw unavailableError(new Error('DOUYIN_VIDEO_DOWNLOAD_MISSING'), {
+        sourceKey: `douyin:${normalized.videoId}`,
+        title: publicVideo?.title || captured?.title || 'Douyin video',
+        originalUrl: normalized.canonicalUrl
+      })
+    }
     return {
       sourceType: 'douyin_url',
       sourceKey: `douyin:${normalized.videoId}`,
-      title: captured.title,
+      title: publicVideo?.title || captured?.title || '',
       originalUrl: normalized.canonicalUrl,
-      downloadUrl: captured.downloadUrl
+      downloadUrl
     }
   } catch (cause) {
+    if (cause instanceof ImportError) throw cause
     throw unavailableError(cause)
   }
 }
@@ -95,10 +112,13 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
-function unavailableError(cause: unknown): ImportError {
+function unavailableError(
+  cause: unknown,
+  partialSource?: { sourceKey: string; title: string; originalUrl: string }
+): ImportError {
   return new ImportError(
     'DOUYIN_VIDEO_DOWNLOAD_UNAVAILABLE',
     '暂时无法获取该抖音视频，请下载视频后从本地上传。',
-    { action: 'upload_local', retryable: false, cause }
+    { action: 'upload_local', retryable: false, cause, partialSource }
   )
 }
