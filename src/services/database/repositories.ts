@@ -474,6 +474,27 @@ class RunRepository {
         : null
     }
   }
+
+  latestFinished(): RunRecord | null {
+    const row = this.database.prepare(
+      `SELECT * FROM runs
+       WHERE status IN ('completed', 'partial')
+         AND finished_at IS NOT NULL
+       ORDER BY finished_at DESC
+       LIMIT 1`
+    ).get() as Record<string, unknown> | undefined
+    if (!row) return null
+    return {
+      id: String(row.id),
+      kind: String(row.kind) as RunRecord['kind'],
+      status: String(row.status) as RunRecord['status'],
+      startedAt: String(row.started_at),
+      finishedAt: String(row.finished_at),
+      summary: row.summary_json
+        ? (JSON.parse(String(row.summary_json)) as Record<string, unknown>)
+        : null
+    }
+  }
 }
 
 export class AppRepositories {

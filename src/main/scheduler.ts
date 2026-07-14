@@ -99,8 +99,18 @@ export class AppScheduler {
   private scheduleWeekly(): void {
     const delay = nextWeeklyRun(new Date()).getTime() - Date.now()
     const timer = setTimeout(() => {
-      void this.runWeekly().finally(() => this.scheduleWeekly())
+      void this.attemptWeekly()
     }, delay)
     this.timers.push(timer)
+  }
+
+  private async attemptWeekly(): Promise<void> {
+    try {
+      await this.runWeekly()
+    } catch {
+      // A rejected run must not stop future weekly scheduling.
+    } finally {
+      this.scheduleWeekly()
+    }
   }
 }

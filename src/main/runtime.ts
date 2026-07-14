@@ -52,7 +52,7 @@ export class DesktopRuntime {
     private readonly imports?: ImportService
   ) {
     this.repositories = new AppRepositories(database.connection)
-    this.lastRunAt = this.repositories.runs.latestCompletedDaily()?.finishedAt ?? null
+    this.lastRunAt = this.repositories.runs.latestFinished()?.finishedAt ?? null
   }
 
   startImport(request: ImportRequest): Promise<ImportStartResult> {

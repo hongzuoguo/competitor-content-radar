@@ -42,4 +42,21 @@ describe('China-time scheduler', () => {
     expect(runDaily).toHaveBeenNthCalledWith(2, 'catch_up')
     scheduler.stop()
   })
+
+  it('safely schedules the next weekly run after the current one rejects', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-11T00:00:00.000Z'))
+    const runWeekly = vi.fn()
+      .mockRejectedValueOnce(new Error('weekly rejected'))
+      .mockResolvedValueOnce(true)
+    const scheduler = new AppScheduler(vi.fn(async () => true), runWeekly)
+
+    scheduler.start(new Date('2026-07-11T00:00:00.000Z'))
+    await vi.advanceTimersByTimeAsync(2 * 24 * 60 * 60 * 1_000 + 90 * 60 * 1_000)
+    expect(runWeekly).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(7 * 24 * 60 * 60 * 1_000)
+    expect(runWeekly).toHaveBeenCalledTimes(2)
+    scheduler.stop()
+  })
 })

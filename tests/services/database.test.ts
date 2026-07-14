@@ -356,5 +356,8 @@ describe('SQLite repositories', () => {
     expect(repositories.runs.latestCompletedDaily()).toMatchObject({
       id: 'newer-partial', status: 'partial', finishedAt: '2026-07-11T00:10:00.000Z'
     })
+    expect(repositories.runs.latestFinished()).toMatchObject({
+      id: 'manual', kind: 'manual', finishedAt: '2026-07-12T00:10:00.000Z'
+    })
   })
 })

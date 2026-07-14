@@ -204,6 +204,40 @@ describe('desktop runtime assembly', () => {
     expect((await runtime.listCreators())[0].lastRun).not.toBe('尚未采集')
   })
 
+  it('restores lastRunAt when only a manual run has finished', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.runs.save({
+      id: 'manual-only', kind: 'manual', status: 'completed',
+      startedAt: '2026-07-12T01:00:00.000Z', finishedAt: '2026-07-12T01:10:00.000Z', summary: null
+    })
+
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn()
+    })
+
+    expect((await runtime.getDashboard()).lastRunAt).toBe('2026-07-12T01:10:00.000Z')
+    expect(runtime.latestCompletedDailyRunAt()).toBeNull()
+  })
+
+  it('restores lastRunAt from a manual run newer than the latest daily run', async () => {
+    const repositories = new AppRepositories(database.connection)
+    repositories.runs.save({
+      id: 'older-daily', kind: 'daily', status: 'completed',
+      startedAt: '2026-07-11T00:00:00.000Z', finishedAt: '2026-07-11T00:10:00.000Z', summary: null
+    })
+    repositories.runs.save({
+      id: 'newer-manual', kind: 'manual', status: 'partial',
+      startedAt: '2026-07-12T01:00:00.000Z', finishedAt: '2026-07-12T01:10:00.000Z', summary: null
+    })
+
+    const runtime = new DesktopRuntime(database, {
+      discover: vi.fn(), processWork: vi.fn(), login: vi.fn()
+    })
+
+    expect((await runtime.getDashboard()).lastRunAt).toBe('2026-07-12T01:10:00.000Z')
+    expect(runtime.latestCompletedDailyRunAt()?.toISOString()).toBe('2026-07-11T00:10:00.000Z')
+  })
+
   it('persists a fatal run failure with finishedAt', async () => {
     database.connection.exec(`
       CREATE TRIGGER fail_snapshot
