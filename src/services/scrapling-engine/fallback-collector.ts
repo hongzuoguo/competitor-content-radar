@@ -56,9 +56,8 @@ export class ScraplingFallbackCollector {
 }
 
 function isFallbackEligible(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return true
-  if ('code' in error && error.code === 'DOUYIN_RISK_CONTROL') return false
-  return !('retryable' in error) || error.retryable !== false
+  if (typeof error !== 'object' || error === null || !('code' in error)) return true
+  return !['INVALID_DOUYIN_CREATOR_URL', 'INVALID_DOUYIN_VIDEO_CAPTURE_REQUEST'].includes(String(error.code))
 }
 
 function stableCode(error: unknown): string {
@@ -66,4 +65,3 @@ function stableCode(error: unknown): string {
     ? String(error.code)
     : 'DOUYIN_PRIMARY_CAPTURE_FAILED'
 }
-
