@@ -8,7 +8,7 @@ on:
       version:
         description: Component version
         required: true
-        default: 0.1.1
+        default: 0.1.2
 
 permissions:
   contents: write
@@ -36,7 +36,7 @@ jobs:
         run: |
           $archive = Get-Item ./engine/scrapling/dist/scrapling-engine-win32-x64.zip
           $hash = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          $componentVersion = '${{ inputs.version || '0.1.1' }}'
+          $componentVersion = '${{ inputs.version || '0.1.2' }}'
           $manifest = [ordered]@{
             protocolVersion = 1
             version = $componentVersion
