@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, net } from 'electron'
 import log from 'electron-log/main'
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
@@ -51,7 +51,11 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
   const secrets = new SecretStore(repositories.settings)
   const douyin = new DouyinBrowserSession()
   const scraplingFallback = new ScraplingFallbackCollector(
-    new ScraplingEngineManager(join(userData, 'components')),
+    new ScraplingEngineManager(
+      join(userData, 'components'),
+      {},
+      (input, init) => net.fetch(input.toString(), init)
+    ),
     new ScraplingEngineRunner(),
     join(userData, 'scrapling-browser-profile'),
     (message, detail) => log.info(message, detail ?? '')

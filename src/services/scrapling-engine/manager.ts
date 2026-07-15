@@ -12,6 +12,7 @@ import {
 import { ScraplingEngineRunner } from './runner'
 
 const EXECUTABLE_NAME = 'scrapling-engine.exe'
+export type ScraplingFetch = (input: string | URL, init?: RequestInit) => Promise<Response>
 
 export interface ScraplingEngineManagerDependencies {
   loadManifest(): Promise<ScraplingEngineManifest>
@@ -32,10 +33,11 @@ export class ScraplingEngineManager {
 
   constructor(
     componentRoot: string,
-    dependencies: Partial<ScraplingEngineManagerDependencies> = {}
+    dependencies: Partial<ScraplingEngineManagerDependencies> = {},
+    fetcher: ScraplingFetch = fetch
   ) {
     this.engineRoot = join(componentRoot, 'scrapling')
-    const defaults = createDefaultDependencies(this.engineRoot)
+    const defaults = createDefaultDependencies(this.engineRoot, fetcher)
     this.dependencies = { ...defaults, ...dependencies }
   }
 
@@ -83,12 +85,15 @@ export class ScraplingEngineManager {
   }
 }
 
-function createDefaultDependencies(engineRoot: string): ScraplingEngineManagerDependencies {
+function createDefaultDependencies(
+  engineRoot: string,
+  fetcher: ScraplingFetch
+): ScraplingEngineManagerDependencies {
   return {
     async loadManifest() {
       const manifestUrl = new URL(SCRAPLING_ENGINE_MANIFEST_URL)
       manifestUrl.searchParams.set('cache', String(Date.now()))
-      const response = await fetch(manifestUrl, { redirect: 'follow', cache: 'no-store' })
+      const response = await fetcher(manifestUrl, { redirect: 'follow', cache: 'no-store' })
       if (!response.ok || !isAllowedDownloadResponse(response.url)) {
         throw componentError('SCRAPLING_ENGINE_MANIFEST_UNAVAILABLE')
       }
@@ -108,7 +113,7 @@ function createDefaultDependencies(engineRoot: string): ScraplingEngineManagerDe
       }
     },
     async download(url, destination, expectedSize) {
-      const response = await fetch(url, { redirect: 'follow' })
+      const response = await fetcher(url, { redirect: 'follow' })
       if (!response.ok || !isAllowedDownloadResponse(response.url)) {
         throw componentError('SCRAPLING_ENGINE_DOWNLOAD_FAILED')
       }
