@@ -86,7 +86,9 @@ export class ScraplingEngineManager {
 function createDefaultDependencies(engineRoot: string): ScraplingEngineManagerDependencies {
   return {
     async loadManifest() {
-      const response = await fetch(SCRAPLING_ENGINE_MANIFEST_URL, { redirect: 'follow', cache: 'no-store' })
+      const manifestUrl = new URL(SCRAPLING_ENGINE_MANIFEST_URL)
+      manifestUrl.searchParams.set('cache', String(Date.now()))
+      const response = await fetch(manifestUrl, { redirect: 'follow', cache: 'no-store' })
       if (!response.ok || !isAllowedDownloadResponse(response.url)) {
         throw componentError('SCRAPLING_ENGINE_MANIFEST_UNAVAILABLE')
       }

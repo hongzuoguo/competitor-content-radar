@@ -8,7 +8,7 @@ on:
       version:
         description: Component version
         required: true
-        default: 0.1.0
+        default: 0.1.1
 
 permissions:
   contents: write
@@ -36,12 +36,13 @@ jobs:
         run: |
           $archive = Get-Item ./engine/scrapling/dist/scrapling-engine-win32-x64.zip
           $hash = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $componentVersion = '${{ inputs.version || '0.1.1' }}'
           $manifest = [ordered]@{
             protocolVersion = 1
-            version = '${{ inputs.version || '0.1.0' }}'
+            version = $componentVersion
             platform = 'win32'
             arch = 'x64'
-            url = 'https://github.com/${{ github.repository }}/releases/download/scrapling-engine-v1/scrapling-engine-win32-x64.zip'
+            url = "https://github.com/${{ github.repository }}/releases/download/scrapling-engine-v1/scrapling-engine-win32-x64.zip?version=$componentVersion"
             sha256 = $hash
             size = $archive.Length
           }
