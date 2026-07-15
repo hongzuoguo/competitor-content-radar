@@ -1,6 +1,8 @@
 name: Release optional Scrapling engine
 
 on:
+  push:
+    tags: ['scrapling-engine-v1']
   workflow_dispatch:
     inputs:
       version:
@@ -36,7 +38,7 @@ jobs:
           $hash = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             protocolVersion = 1
-            version = '${{ inputs.version }}'
+            version = '${{ inputs.version || '0.1.0' }}'
             platform = 'win32'
             arch = 'x64'
             url = 'https://github.com/${{ github.repository }}/releases/download/scrapling-engine-v1/scrapling-engine-win32-x64.zip'
@@ -57,4 +59,3 @@ jobs:
           files: |
             engine/scrapling/dist/scrapling-engine-win32-x64.zip
             engine/scrapling/dist/scrapling-engine-manifest.json
-
