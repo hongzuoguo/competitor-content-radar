@@ -16,6 +16,9 @@ artifacts/
 *.db.backup-*
 media/
 models/
+engine/scrapling/build/
+engine/scrapling/__pycache__/
+engine/scrapling/tests/__pycache__/
 *.onnx
 *.wav
 *.mp4

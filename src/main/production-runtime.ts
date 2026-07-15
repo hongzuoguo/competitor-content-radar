@@ -25,6 +25,9 @@ import { resolveDouyinVideo } from '../services/import/douyin-video-source'
 import { resolveDouyinCreatorUrl } from '../services/douyin/creator-url'
 import { createCreatorRedirectFetch } from './creator-redirect-request'
 import { GetBijiClient } from '../services/get-biji/client'
+import { ScraplingEngineManager } from '../services/scrapling-engine/manager'
+import { ScraplingEngineRunner } from '../services/scrapling-engine/runner'
+import { ScraplingFallbackCollector } from '../services/scrapling-engine/fallback-collector'
 
 interface ModelManifest {
   id: string
@@ -47,6 +50,12 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
   const repositories = new AppRepositories(database.connection)
   const secrets = new SecretStore(repositories.settings)
   const douyin = new DouyinBrowserSession()
+  const scraplingFallback = new ScraplingFallbackCollector(
+    new ScraplingEngineManager(join(userData, 'components')),
+    new ScraplingEngineRunner(),
+    join(userData, 'scrapling-browser-profile'),
+    (message, detail) => log.info(message, detail ?? '')
+  )
   const modelManifest = JSON.parse(
     readFileSync(join(app.getAppPath(), 'resources', 'model-manifest.json'), 'utf8')
   ) as ModelManifest
@@ -139,7 +148,11 @@ export function createProductionRuntime(options: ProductionRuntimeOptions = {}):
   }
 
   const ports: RuntimePorts = {
-    discover: (creatorId, profileUrl) => douyin.captureCreatorWorks(creatorId, profileUrl),
+    discover: (creatorId, profileUrl) => scraplingFallback.capture(
+      creatorId,
+      profileUrl,
+      (id, url) => douyin.captureCreatorWorks(id, url)
+    ),
     discoverFromGetBiji: async (creatorId, profileUrl, settings) => {
       const followId = profileUrl.startsWith('getbiji://blogger/')
         ? decodeURIComponent(profileUrl.slice('getbiji://blogger/'.length))
