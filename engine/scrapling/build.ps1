@@ -6,7 +6,7 @@ Push-Location $Root
 try {
   python -m pip install --requirement (Join-Path $Root 'requirements.txt')
   python -m unittest discover -s (Join-Path $Root 'tests') -v
-  python -m PyInstaller --noconfirm --clean --onedir --name scrapling-engine --distpath $Output --workpath (Join-Path $Root 'build') --specpath (Join-Path $Root 'build') --collect-all scrapling --collect-all patchright --collect-all playwright --collect-all browserforge --collect-all apify_fingerprint_datapoints (Join-Path $Root 'scrapling_engine.py')
+  python -m PyInstaller --noconfirm --clean --onedir --name scrapling-engine --distpath $Output --workpath (Join-Path $Root 'build') --specpath (Join-Path $Root 'build') --collect-all scrapling --collect-all patchright --collect-all playwright --collect-all browserforge --collect-all apify_fingerprint_datapoints --collect-all curl_cffi (Join-Path $Root 'scrapling_engine.py')
 
   $PackageRoot = Join-Path $Output 'package'
   Remove-Item $PackageRoot -Recurse -Force -ErrorAction SilentlyContinue
