@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "ffmpeg-static",
+    "version": "5.3.0"
+  },
+  "release": {
+    "tag": "b6.1.1",
+    "executableBaseName": "ffmpeg"
+  },
+  "platform": "win32",
+  "arch": "x64",
+  "sourceBaseUrl": "https://github.com/eugeneware/ffmpeg-static/releases/download",
+  "asset": {
+    "compressed": {
+      "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz",
+      "size": 29581307,
+      "sha256": "8883a3dffbd0a16cf4ef95206ea05283f78908dbfb118f73c83f4951dcc06d77"
+    },
+    "decompressed": {
+      "filename": "ffmpeg.exe",
+      "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz",
+      "size": 82797568,
+      "sha256": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00"
+    }
+  },
+  "readme": {
+    "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/win32-x64.README",
+    "size": 39494,
+    "sha256": "a636a7183c58006351acbaf35303c0ed85c6e1320fd4e80de453ba6157de6311"
+  },
+  "license": {
+    "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/win32-x64.LICENSE",
+    "size": 35147,
+    "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+    "spdx": "GPL-3.0-or-later",
+    "redistributionNotice": "The packaged FFmpeg executable is GPL-3.0-or-later; retain the upstream license and provide corresponding source as required by GPL-3.0-or-later."
+  }
+}

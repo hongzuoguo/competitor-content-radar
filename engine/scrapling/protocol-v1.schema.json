@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HitMuse Scrapling engine protocol v1",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "request": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": { "protocolVersion": { "const": 1 }, "command": { "$ref": "#/$defs/operation" } },
+          "required": ["protocolVersion", "command"]
+        },
+        {
+          "oneOf": [
+            { "$ref": "#/$defs/healthRequest" },
+            { "$ref": "#/$defs/loginRequest" },
+            { "$ref": "#/$defs/loginStatusRequest" },
+            { "$ref": "#/$defs/captureVideoRequest" },
+            { "$ref": "#/$defs/captureCreatorRequest" }
+          ]
+        }
+      ]
+    },
+    "operation": { "enum": ["health", "login", "login_status", "capture_video", "capture_creator"] },
+    "profileDirectory": { "type": "string", "pattern": "^(?:[A-Za-z]:[\\\\/].*|\\\\\\\\[^\\\\/]+[\\\\/][^\\\\/]+(?:[\\\\/].*)?)$" },
+    "healthRequest": {
+      "type": "object",
+      "properties": { "protocolVersion": { "const": 1 }, "command": { "const": "health" } },
+      "required": ["protocolVersion", "command"],
+      "additionalProperties": false
+    },
+    "loginRequest": {
+      "type": "object",
+      "properties": { "protocolVersion": { "const": 1 }, "command": { "const": "login" }, "profileDirectory": { "$ref": "#/$defs/profileDirectory" } },
+      "required": ["protocolVersion", "command", "profileDirectory"],
+      "additionalProperties": false
+    },
+    "loginStatusRequest": {
+      "type": "object",
+      "properties": { "protocolVersion": { "const": 1 }, "command": { "const": "login_status" }, "profileDirectory": { "$ref": "#/$defs/profileDirectory" } },
+      "required": ["protocolVersion", "command", "profileDirectory"],
+      "additionalProperties": false
+    },
+    "captureVideoRequest": {
+      "type": "object",
+      "properties": { "protocolVersion": { "const": 1 }, "command": { "const": "capture_video" }, "profileDirectory": { "$ref": "#/$defs/profileDirectory" }, "videoId": { "type": "string", "pattern": "^[0-9]+$" } },
+      "required": ["protocolVersion", "command", "profileDirectory", "videoId"],
+      "additionalProperties": false
+    },
+    "captureCreatorRequest": {
+      "type": "object",
+      "properties": { "protocolVersion": { "const": 1 }, "command": { "const": "capture_creator" }, "creatorId": { "type": "string" }, "profileUrl": { "type": "string", "format": "uri", "pattern": "^https://(?:douyin\\.com|www\\.douyin\\.com|v\\.douyin\\.com)(?:[/?#]|$).*" }, "profileDirectory": { "$ref": "#/$defs/profileDirectory" } },
+      "required": ["protocolVersion", "command", "creatorId", "profileUrl", "profileDirectory"],
+      "additionalProperties": false
+    },
+    "response": {
+      "oneOf": [
+        { "$ref": "#/$defs/healthResponse" },
+        { "$ref": "#/$defs/loginStatusResponse" },
+        { "$ref": "#/$defs/captureVideoResponse" },
+        { "$ref": "#/$defs/captureCreatorResponse" },
+        { "$ref": "#/$defs/errorResponse" }
+      ]
+    },
+    "success": {
+      "type": "object",
+      "properties": { "protocolVersion": { "const": 1 }, "ok": { "const": true } },
+      "required": ["protocolVersion", "ok"]
+    },
+    "healthResponse": {
+      "allOf": [{ "$ref": "#/$defs/success" }, { "properties": { "status": { "const": "ready" } }, "required": ["status"] }],
+      "unevaluatedProperties": false
+    },
+    "loginStatusResponse": {
+      "allOf": [{ "$ref": "#/$defs/success" }, { "properties": { "loggedIn": { "type": "boolean" } }, "required": ["loggedIn"] }],
+      "unevaluatedProperties": false
+    },
+    "captureVideoResponse": {
+      "allOf": [{ "$ref": "#/$defs/success" }, { "properties": { "work": { "$ref": "#/$defs/work" } }, "required": ["work"] }],
+      "unevaluatedProperties": false
+    },
+    "captureCreatorResponse": {
+      "allOf": [{ "$ref": "#/$defs/success" }, { "properties": { "creator": { "$ref": "#/$defs/creator" }, "works": { "type": "array", "items": { "$ref": "#/$defs/work" }, "maxItems": 200 }, "complete": { "type": "boolean" }, "missingWorkIds": { "type": "array", "items": { "type": "string", "pattern": "^[0-9]+$" }, "maxItems": 60 }, "pagesCaptured": { "type": "integer", "minimum": 0 } }, "required": ["creator", "works"] }],
+      "unevaluatedProperties": false
+    },
+    "creator": {
+      "type": "object",
+      "properties": { "name": { "type": "string", "minLength": 1 }, "profileUrl": { "type": "string", "format": "uri" } },
+      "required": ["name", "profileUrl"],
+      "additionalProperties": false
+    },
+    "work": {
+      "type": "object",
+      "properties": { "id": { "type": "string", "pattern": "^[0-9]+$" }, "title": { "type": "string", "minLength": 1, "maxLength": 10000 }, "publishedAt": { "type": "string", "format": "date-time" }, "originalUrl": { "type": "string", "format": "uri" }, "downloadUrl": { "type": ["string", "null"], "format": "uri" }, "likes": { "type": "integer", "minimum": 0 }, "comments": { "type": "integer", "minimum": 0 }, "shares": { "type": "integer", "minimum": 0 }, "collects": { "type": "integer", "minimum": 0 } },
+      "required": ["id", "title", "publishedAt", "originalUrl", "downloadUrl", "likes", "comments", "shares", "collects"],
+      "additionalProperties": false
+    },
+    "errorResponse": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": { "enum": ["PROTOCOL_UNSUPPORTED", "INVALID_COMMAND", "INVALID_REQUEST", "INVALID_PROFILE_URL", "INVALID_PROFILE_DIRECTORY", "DOUYIN_BROWSER_NOT_FOUND", "DOUYIN_CAPTURE_INVALID", "DOUYIN_CAPTURE_EMPTY", "DOUYIN_RISK_CONTROL", "DOUYIN_LOGIN_REQUIRED", "DOUYIN_LOGIN_CANCELLED", "DOUYIN_NETWORK_TIMEOUT", "SCRAPLING_ENGINE_INTERNAL"] },
+            "message": { "type": "string", "maxLength": 500 },
+            "diagnostic": { "$ref": "#/$defs/diagnostic" }
+          },
+          "required": ["code", "message"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["protocolVersion", "ok", "error"],
+      "additionalProperties": false
+    },
+    "diagnostic": {
+      "type": "object",
+      "properties": {
+        "payloadCount": { "type": "integer", "minimum": 0 },
+        "responses": { "type": "array", "items": { "type": "object", "properties": { "urlPath": { "type": "string", "maxLength": 300 }, "httpStatus": { "type": ["integer", "null"] }, "bodyBytes": { "type": "integer", "minimum": 0 } }, "required": ["urlPath", "httpStatus", "bodyBytes"], "additionalProperties": false }, "maxItems": 20 },
+        "payloads": { "type": "array", "items": { "type": "object", "properties": { "statusCode": true, "statusMessage": { "type": ["string", "null"], "maxLength": 300 }, "loginGuide": { "type": "boolean" }, "awemeCount": { "type": ["integer", "null"], "minimum": 0 }, "keys": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 40 }, "valueType": { "type": "string", "maxLength": 100 } }, "additionalProperties": false }, "maxItems": 20 },
+        "exceptionType": { "type": "string", "maxLength": 100 },
+        "errorMessage": { "type": "string", "maxLength": 500 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

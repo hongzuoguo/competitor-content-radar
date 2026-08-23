@@ -1,0 +1,18 @@
+const asar = require('@electron/asar')
+const path = require('node:path')
+
+const archive = path.join(__dirname, '..', 'release', 'win-unpacked', 'resources', 'app.asar')
+const files = asar.listPackage(archive)
+const mainFile = files.find((f) => f.includes('out') && f.includes('main') && f.endsWith('index.js'))
+console.log('找到主进程文件:', mainFile)
+
+const main = asar.extractFile(archive, mainFile.replace(/^\\+/, '')).toString('utf8')
+const idx = main.indexOf('feishu-auth.pages.dev')
+console.log('broker URL 注入:', idx > -1 ? 'YES ✅' : 'NO ❌')
+if (idx > -1) console.log('上下文:', main.slice(Math.max(0, idx - 60), idx + 40).replace(/\n/g, ' '))
+console.log('死 IPC app:metadata 残留:', main.includes('app:metadata') ? '还在 ⚠️' : '已删除 ✅')
+console.log('死 IPC agent:audits 残留:', main.includes('agent:audits') ? '还在 ⚠️' : '已删除 ✅')
+console.log('死 IPC agent:set-enabled 残留:', main.includes('agent:set-enabled') ? '还在 ⚠️' : '已删除 ✅')
+console.log('飞书诊断日志(feishu authorize start):', main.includes('feishu authorize start') ? '已进包 ✅' : '缺失 ❌')
+console.log('飞书诊断日志(feishu broker:):', main.includes('feishu broker:') ? '已进包 ✅' : '缺失 ❌')
+console.log('飞书诊断日志(broker request):', main.includes('broker request') ? '已进包 ✅' : '缺失 ❌')

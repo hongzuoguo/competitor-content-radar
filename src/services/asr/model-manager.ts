@@ -1,0 +1,110 @@
+import { createHash } from 'node:crypto'
+import { createReadStream, existsSync, renameSync, rmSync, statSync } from 'node:fs'
+import { mkdir, open } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import { createTransportRetryFetcher } from '../network/fetch-with-transport-retry'
+
+export interface ModelFileManifest {
+  url: string
+  size: number
+  sha256: string
+}
+
+async function sha256(path: string): Promise<string> {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
+  return hash.digest('hex')
+}
+
+export async function verifyModelFile(manifest: ModelFileManifest, path: string): Promise<boolean> {
+  try {
+    const file = statSync(path)
+    return file.isFile() && file.size === manifest.size && (await sha256(path)) === manifest.sha256
+  } catch {
+    return false
+  }
+}
+
+class ModelPreparationError extends Error {
+  readonly code = 'MODEL_PREPARATION_FAILED'
+
+  constructor(message: string, cause: unknown) {
+    super(message, { cause })
+    this.name = 'ModelPreparationError'
+  }
+}
+
+export class ModelManager {
+  constructor(private readonly fetchImplementation: typeof fetch = fetch) {}
+
+  async ensureFile(manifest: ModelFileManifest, destination: string): Promise<void> {
+    try {
+      await this.prepareFile(manifest, destination)
+    } catch (error) {
+      if (error instanceof ModelPreparationError) throw error
+      const cause = error instanceof Error ? error : new Error(String(error))
+      throw new ModelPreparationError(cause.message, cause)
+    }
+  }
+
+  private async prepareFile(manifest: ModelFileManifest, destination: string): Promise<void> {
+    if (await verifyModelFile(manifest, destination)) return
+
+    await mkdir(dirname(destination), { recursive: true })
+    const partial = `${destination}.part`
+    let offset = existsSync(partial) ? statSync(partial).size : 0
+    if (existsSync(partial) && offset === manifest.size) {
+      if ((await sha256(partial)) === manifest.sha256) {
+        rmSync(destination, { force: true })
+        renameSync(partial, destination)
+        return
+      }
+      rmSync(partial, { force: true })
+      offset = 0
+    }
+    if (offset > manifest.size) {
+      rmSync(partial, { force: true })
+      offset = 0
+    }
+
+    let response: Response
+    try {
+      response = await createTransportRetryFetcher(this.fetchImplementation)(manifest.url, {
+        headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined
+      })
+    } catch (error) {
+      throw new ModelPreparationError('MODEL_DOWNLOAD_TRANSPORT_FAILED', error)
+    }
+    if (!response.ok || !response.body) {
+      await response.body?.cancel().catch(() => undefined)
+      const cause = new Error(`MODEL_DOWNLOAD_HTTP_${response.status}`)
+      throw new ModelPreparationError(cause.message, cause)
+    }
+
+    const append = offset > 0 && response.status === 206
+    const reader = response.body.getReader()
+    let handle: Awaited<ReturnType<typeof open>> | undefined
+    try {
+      handle = await open(partial, append ? 'a' : 'w')
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        await handle.write(value)
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined)
+      throw error
+    } finally {
+      await handle?.close()
+    }
+
+    const valid = statSync(partial).size === manifest.size && (await sha256(partial)) === manifest.sha256
+    if (!valid) {
+      rmSync(partial, { force: true })
+      throw new Error('MODEL_CHECKSUM_MISMATCH')
+    }
+
+    rmSync(destination, { force: true })
+    renameSync(partial, destination)
+  }
+}

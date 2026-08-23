@@ -1,0 +1,60 @@
+import { Plus } from 'lucide-react'
+import { useState } from 'react'
+import { Button } from '../../components/Button'
+
+export function CreatorForm({
+  disabled,
+  onAdd,
+  onAddMine
+}: {
+  disabled: boolean
+  onAdd(url: string): void
+  onAddMine(url: string): void
+}): React.JSX.Element {
+  const [url, setUrl] = useState('')
+  const [error, setError] = useState('')
+
+  function submit(event: React.FormEvent): void {
+    event.preventDefault()
+    if (!url.trim()) {
+      setError('请粘贴抖音博主主页链接或名片分享消息')
+      return
+    }
+    onAdd(url.trim())
+    setUrl('')
+    setError('')
+  }
+
+  function submitMine(event: React.MouseEvent): void {
+    event.preventDefault()
+    if (!url.trim()) {
+      setError('请粘贴你自己的抖音主页链接')
+      return
+    }
+    onAddMine(url.trim())
+    setUrl('')
+    setError('')
+  }
+
+  return (
+    <form className="creator-form" onSubmit={submit}>
+      <div className="form-field creator-form__field">
+        <label htmlFor="creator-url">抖音博主主页</label>
+        <div className="creator-form__input-row">
+          <input
+            aria-describedby={error ? 'creator-url-error' : 'creator-url-help'}
+            disabled={disabled}
+            id="creator-url"
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="粘贴博主名片分享消息或主页链接"
+            type="text"
+            value={url}
+          />
+          <Button disabled={disabled} icon={<Plus size={16} />} type="submit">添加博主</Button>
+          <Button disabled={disabled} onClick={submitMine} variant="secondary">采集我的作品</Button>
+        </div>
+        {error ? <span className="form-error" id="creator-url-error">{error}</span> : <span className="form-help" id="creator-url-help">粘贴自己的主页后点“采集我的作品”；其他主页点“添加博主”用于对标。</span>}
+      </div>
+    </form>
+  )
+}

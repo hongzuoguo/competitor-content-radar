@@ -1,0 +1,144 @@
+{
+  "name": "competitor-content-radar",
+  "version": "1.1.0",
+  "private": true,
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": "24.14.1",
+    "npm": "11.12.1"
+  },
+  "description": "抖音对标内容自动分析桌面工作台",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "electron-vite preview",
+    "postinstall": "node scripts/install-native-deps.mjs",
+    "rebuild:electron": "node scripts/switch-abi.mjs electron",
+    "rebuild:node": "node scripts/switch-abi.mjs node",
+    "setup:scrapling-dev": "powershell -NoProfile -ExecutionPolicy Bypass -File engine/scrapling/setup-dev.ps1",
+    "build:scrapling": "node scripts/build-scrapling-engine.mjs",
+    "prepare:model": "node scripts/prepare-model-resource.mjs",
+    "verify:toolchain": "node scripts/verify-toolchain.mjs",
+    "verify:public-secrets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-public-secrets.ps1",
+    "verify:resources": "node scripts/verify-resource-completeness.mjs",
+    "verify:public-candidate": "node scripts/verify-public-candidate.mjs",
+    "verify:build-context": "node scripts/verify-build-context.mjs",
+    "clean-test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-clean-test.ps1",
+    "release:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-clean-test.ps1",
+    "package:dir": "electron-vite build && electron-builder --win dir --x64 --publish never",
+    "package:installer": "electron-vite build --mode release && electron-builder --win nsis --x64 --publish never",
+    "verify:release-dependencies": "node scripts/verify-release-dependencies.mjs",
+    "dist": "npm run build:scrapling && npm run prepare:model && npm run verify:resources && npm run verify:release-dependencies && npm run build && npm run rebuild:electron && electron-builder --win nsis --x64 --publish never && npm run verify:packaged-app",
+    "dist:dir": "npm run build:scrapling && npm run prepare:model && npm run verify:resources && npm run verify:release-dependencies && npm run build && npm run rebuild:electron && electron-builder --win dir --x64 --publish never",
+    "verify:packaged-app": "node scripts/verify-packaged-app.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "better-sqlite3": "^12.11.1",
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
+    "extract-zip": "^2.0.1",
+    "ffmpeg-static": "5.3.0",
+    "lucide-react": "^0.468.0",
+    "nodejieba": "^3.5.8",
+    "parse5": "^8.0.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.6.3",
+    "sherpa-onnx-node": "^1.13.4",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^27.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  },
+  "build": {
+    "appId": "com.hitmuse.desktop",
+    "productName": "HitMuse",
+    "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/nodejieba/**/*",
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/sherpa-onnx-node/**/*"
+    ],
+    "files": [
+      "out/**/*",
+      "resources/model-manifest.json",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".build-resources/scrapling-engine/scrapling-engine-win32-x64.zip",
+        "to": "scrapling-engine/scrapling-engine-win32-x64.zip"
+      },
+      {
+        "from": ".build-resources/scrapling-engine/engine-manifest.json",
+        "to": "scrapling-engine/manifest.json"
+      },
+      {
+        "from": ".build-resources/scrapling-engine/engine-provenance.json",
+        "to": "scrapling-engine/engine-provenance.json"
+      },
+      {
+        "from": ".build-resources/models",
+        "to": "models"
+      },
+      {
+        "from": "src/renderer/public/hitmuse-mark.png",
+        "to": "hitmuse-mark.png"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hongzuoguo",
+        "repo": "competitor-content-radar",
+        "channel": "latest",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "icon": "resources/hitmuse.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "competitor-content-radar-setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    }
+  }
+}

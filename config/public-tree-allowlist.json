@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "allowedPaths": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.css",
+    "src/**/*.html",
+    "src/**/*.svg",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "engine/scrapling/**/*.py",
+    "engine/scrapling/**/*.ps1",
+    "engine/scrapling/**/*.txt",
+    "engine/scrapling/**/*.json",
+    "resources/*.json",
+    "build/**/*.nsh",
+    "scripts/**/*.mjs",
+    "scripts/**/*.mts",
+    "scripts/**/*.cjs",
+    "scripts/**/*.ps1",
+    "scripts/**/*.py",
+    ".github/workflows/**/*.yml",
+    ".github/workflows/**/*.yaml",
+    "package.json",
+    "package-lock.json",
+    "tsconfig*.json",
+    "vitest.config.ts",
+    "electron.vite.config.ts",
+    ".gitignore",
+    ".node-version",
+    ".nvmrc",
+    ".gitleaksignore",
+    ".gitleaks.toml",
+    "LICENSE",
+    "README.md",
+    "CONTRIBUTING.md",
+    "THIRD_PARTY_NOTICES.md",
+    "config/public-tree-allowlist.json",
+    "scripts/verify-public-candidate.mjs",
+    "docs/operations/README.md",
+    "docs/operations/electron-preview.md",
+    "docs/operations/repository-completeness.md",
+    "docs/operations/environment-and-release-policy.md",
+    "docs/operations/build-and-clean-test.md",
+    "docs/resources-and-licenses.md",
+    "docs/user-guide-content.json",
+    "docs/2026-08-06-user-guide.md"
+  ],
+  "binaryPaths": [
+    "src/renderer/public/hitmuse-logo.png",
+    "src/renderer/public/hitmuse-mark.png",
+    "resources/hitmuse.ico"
+  ],
+  "deniedPaths": [
+    {
+      "ruleId": "PRIVATE_ENVIRONMENT_FILE",
+      "patterns": ["**/.env*"]
+    },
+    {
+      "ruleId": "PRIVATE_INTERNAL_DOCUMENTATION",
+      "patterns": ["docs/superpowers/**", "docs/operations/feishu-readonly-analysis.md", "AGENTS.md", "DESIGN.md", "PRODUCT.md", "design-system/**", "scripts/archive-and-clean-history.ps1", "tests/build/archive-clean-history.test.ts"]
+    },
+    {
+      "ruleId": "PRIVATE_TOOL_STATE",
+      "patterns": [".agents/**", ".codex/**", ".impeccable/**", ".hallmark/**", "findings.md", "progress.md", "task_plan.md"]
+    },
+    {
+      "ruleId": "DATABASE_ARTIFACT",
+      "patterns": ["**/*.db", "**/*.db-*", "**/*.sqlite", "**/*.sqlite-*"]
+    },
+    {
+      "ruleId": "BUILD_ARTIFACT",
+      "patterns": ["node_modules/**", "release/**", "out/**", "dist/**"]
+    },
+    {
+      "ruleId": "MEDIA_OR_MODEL_ARTIFACT",
+      "patterns": ["**/*.log", "**/*.mp4", "**/*.onnx", "**/*.wav"]
+    }
+  ],
+  "contentRules": [
+    {
+      "ruleId": "PRIVATE_BILLING_REFERENCE",
+      "base64Literals": ["YmlsbGluZw==", "TUFJTl9WSVRFX0JJTExJTkc=", "dmVyaWZ5OmJpbGxpbmc="]
+    },
+    {
+      "ruleId": "PRIVATE_RESOURCE_REPOSITORY",
+      "base64Literals": ["aG9uZ3p1b2d1by9oaXRtdXNlLXByaXZhdGUtcmVzb3VyY2Vz"]
+    },
+    {
+      "ruleId": "PRIVATE_RELEASE_REPOSITORY",
+      "base64Literals": ["aG9uZ3p1b2d1by9jb21wZXRpdG9yLWNvbnRlbnQtcmFkYXItcmVsZWFzZXM="]
+    },
+    {
+      "ruleId": "PRIVATE_WORKSTATION_PATH",
+      "base64Literals": ["RTpcMTA1MDA=", "QzpcVXNlcnNcMTA1MDA="]
+    }
+  ],
+  "limits": {
+    "maxFiles": 5000,
+    "maxDepth": 20,
+    "maxFileBytes": 33554432,
+    "maxTotalBytes": 268435456,
+    "maxErrors": 100
+  }
+}

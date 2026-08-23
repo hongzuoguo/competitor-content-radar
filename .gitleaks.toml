@@ -1,0 +1,64 @@
+title = "HitMuse public source secret scan"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Approved public Feishu template identity"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''(?:^|.*[\\/])src[\\/]shared[\\/]feishu-template\.ts$'''
+]
+regexes = [
+  '''^export const FEISHU_TEMPLATE_APP_TOKEN = 'UhZ6bYe6aafexms9WGXcomHInic'$'''
+]
+
+[[allowlists]]
+description = "Approved public Feishu template boundary assertion"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''(?:^|.*[\\/])tests[\\/]build[\\/]public-repository-boundary\.test\.ts$'''
+]
+regexes = [
+  '''^[ ]{0,4}expect\(feishuTemplate\)\.toContain\("FEISHU_TEMPLATE_APP_TOKEN = 'UhZ6bYe6aafexms9WGXcomHInic'"\)$'''
+]
+
+[[allowlists]]
+description = "Artificial Feishu custom-app fixture first case"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''(?:^|.*[\\/])tests[\\/]services[\\/]feishu-custom-app-auth\.test\.ts$'''
+]
+regexes = [
+  '''^[ ]{0,6}appToken: 'appbcbWCzen6D8dezhoCH2RpMAh',$'''
+]
+
+[[allowlists]]
+description = "Artificial Feishu custom-app fixture second case"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''(?:^|.*[\\/])tests[\\/]services[\\/]feishu-custom-app-auth\.test\.ts$'''
+]
+regexes = [
+  '''^[ ]{0,6}appToken: 'appbcbWCzen6D8dezhoCH2RpMAh',$'''
+]
+
+[[allowlists]]
+description = "Artificial Feishu error-code fixture"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''(?:^|.*[\\/])tests[\\/]services[\\/]feishu-integration\.test\.ts$'''
+]
+regexes = [
+  '''^[ ]{0,4}\['FEISHU_API_1254302:wiki\.node Bearer fake-secret', 'FEISHU_API_1254302'\],$'''
+]
+
+[[rules]]
+id = "hitmuse-runtime-sentinel"
+description = "HitMuse runtime privacy-gate sentinel"
+regex = '''HITMUSE_SENTINEL_[A-Za-z0-9]{32}'''
