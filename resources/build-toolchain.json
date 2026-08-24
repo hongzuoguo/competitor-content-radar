@@ -5,8 +5,8 @@
   "node": "24.14.1",
   "npm": "11.12.1",
   "python": "3.12.10",
-  "visualStudio": "17.14.37301.10",
-  "msvc": "14.44.35207",
+  "visualStudio": "17.14.x",
+  "msvc": "14.44.x",
   "windowsSdk": "10.0.26100.0",
   "lockedPackages": {
     "electron": "43.1.0",

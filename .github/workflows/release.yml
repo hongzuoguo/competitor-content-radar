@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -73,7 +73,7 @@ jobs:
 
   engine:
     needs: validate
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -113,7 +113,7 @@ jobs:
 
   package:
     needs: [validate, engine]
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -207,7 +207,7 @@ jobs:
 
   publish:
     needs: [validate, engine, package]
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
     steps:

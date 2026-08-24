@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   node:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -53,7 +53,7 @@ jobs:
           node --input-type=module --eval "import packageJson from './package.json' with { type: 'json' }; if (!['package:dir', 'package:installer', 'dist', 'dist:dir'].every((name) => packageJson.scripts[name].includes('--publish never'))) throw new Error('PACKAGE_PUBLICATION_GUARD_INVALID')"
 
   engine:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

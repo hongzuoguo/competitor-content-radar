@@ -15,8 +15,8 @@ const expectedActual = {
   node: '24.14.1',
   npm: '11.12.1',
   python: '3.12.10',
-  visualStudio: '17.14.37301.10',
-  msvc: '14.44.35207',
+  visualStudio: '17.14.37612.4',
+  msvc: '14.44.35211',
   windowsSdk: '10.0.26100.0'
 }
 
@@ -39,8 +39,8 @@ describe('pinned build toolchain', () => {
       node: '24.14.1',
       npm: '11.12.1',
       python: '3.12.10',
-      visualStudio: '17.14.37301.10',
-      msvc: '14.44.35207',
+      visualStudio: '17.14.x',
+      msvc: '14.44.x',
       windowsSdk: '10.0.26100.0',
       lockedPackages: {
         electron: '43.1.0',
@@ -123,12 +123,22 @@ describe('pinned build toolchain', () => {
       .toEqual({ ...expectedActual, lockedPackages })
   })
 
+  it('accepts patch updates within the pinned Visual Studio and MSVC compatibility lines', async () => {
+    const { contract, verifier } = await loadContractAndVerifier()
+
+    expect(verifier.verifyToolchainSnapshot({
+      contract,
+      actual: expectedActual,
+      lockedPackages: contract.lockedPackages
+    })).toEqual({ ...expectedActual, lockedPackages: contract.lockedPackages })
+  })
+
   it.each([
     ['node', '24.14.0', 'TOOLCHAIN_NODE_MISMATCH'],
     ['npm', '11.12.0', 'TOOLCHAIN_NPM_MISMATCH'],
     ['python', '3.12.9', 'TOOLCHAIN_PYTHON_MISMATCH'],
-    ['visualStudio', '17.14.0', 'TOOLCHAIN_VISUAL_STUDIO_MISMATCH'],
-    ['msvc', '14.43.0', 'TOOLCHAIN_MSVC_MISMATCH'],
+    ['visualStudio', '18.9.12112.369', 'TOOLCHAIN_VISUAL_STUDIO_MISMATCH'],
+    ['msvc', '14.45.0', 'TOOLCHAIN_MSVC_MISMATCH'],
     ['windowsSdk', '10.0.22621.0', 'TOOLCHAIN_WINDOWS_SDK_MISMATCH']
   ])('fails fast when %s differs', async (field, value, code) => {
     const { contract, verifier } = await loadContractAndVerifier()

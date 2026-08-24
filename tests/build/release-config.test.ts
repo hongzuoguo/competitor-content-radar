@@ -736,6 +736,8 @@ describe('GitHub release configuration', () => {
     expect(workflow).not.toMatch(/HITMUSE_RESOURCE_GITHUB_TOKEN|RELEASES_REPOSITORY_TOKEN|gh auth|softprops|competitor-content-radar-releases/i)
     expect(workflow.match(/contents: write/g)).toHaveLength(1)
     expect(workflow.match(/run: npm ci/g)).toHaveLength(3)
+    expect(workflow.match(/runs-on: windows-2022/g)).toHaveLength(4)
+    expect(workflow).not.toContain('runs-on: windows-latest')
     const releaseEngine = workflow.slice(workflow.indexOf('\n  engine:'), workflow.indexOf('\n  package:'))
     expect(releaseEngine.indexOf('npm install --global npm@11.12.1')).toBeLessThan(releaseEngine.indexOf('npm run verify:toolchain'))
   })
@@ -786,6 +788,8 @@ describe('GitHub release configuration', () => {
     const ciEngine = workflow.slice(workflow.indexOf('\n  engine:'))
     expect(ciEngine.indexOf('npm install --global npm@11.12.1')).toBeLessThan(ciEngine.indexOf('npm run verify:toolchain'))
     expect(workflow).not.toMatch(/contents: write|HITMUSE_RESOURCE_GITHUB_TOKEN|RELEASES_REPOSITORY_TOKEN|gh auth|competitor-content-radar-releases/i)
+    expect(workflow.match(/runs-on: windows-2022/g)).toHaveLength(2)
+    expect(workflow).not.toContain('runs-on: windows-latest')
   })
 
   it('requires a create-only same-commit human review JSON without logging its contents', () => {

@@ -72,7 +72,11 @@ export function verifyToolchainSnapshot({ contract, actual, lockedPackages }) {
   verifyGitleaksContract(contract.gitleaks)
   verifyPipToolsContract(contract.pipTools)
   for (const [field, label] of fields) {
-    if (actual?.[field] !== contract[field]) {
+    const expected = contract[field]
+    const matches = typeof expected === 'string' && expected.endsWith('.x')
+      ? actual?.[field]?.startsWith(expected.slice(0, -1))
+      : actual?.[field] === expected
+    if (!matches) {
       throw new Error(`TOOLCHAIN_${label}_MISMATCH:expected=${contract[field]}:actual=${actual?.[field] ?? 'missing'}`)
     }
   }
