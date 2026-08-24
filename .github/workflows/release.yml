@@ -211,8 +211,9 @@ jobs:
           $candidate = Join-Path $env:RUNNER_TEMP 'visual-public-candidate'
           $reviewRoot = Join-Path $env:RUNNER_TEMP 'reviewed-visual-evidence'
           $reviewPath = Join-Path $reviewRoot 'review.json'
-          $report = Join-Path $env:RUNNER_TEMP 'visual-privacy.json'
-          New-Item -ItemType Directory -Path $candidate, $reviewRoot -ErrorAction Stop | Out-Null
+          $visualReportRoot = Join-Path $env:RUNNER_TEMP 'visual-privacy-report'
+          $report = Join-Path $visualReportRoot 'visual-privacy.json'
+          New-Item -ItemType Directory -Path $candidate, $reviewRoot, $visualReportRoot -ErrorAction Stop | Out-Null
           git archive --format=tar HEAD | tar -xf - -C $candidate
           $stream = [System.IO.File]::Open($reviewPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
           try { $stream.Write($reviewBytes, 0, $reviewBytes.Length) } finally { $stream.Dispose() }
