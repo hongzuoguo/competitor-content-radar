@@ -282,6 +282,14 @@ async function readSafeSummary(resultsRoot = reportRoot) {
 }
 
 describe('public privacy gate', () => {
+  it('initializes the private tool cache from an exact SID descriptor without localized icacls output', async () => {
+    const source = await readFile(scriptPath, 'utf8')
+    expect(source).toContain('ConvertStringSecurityDescriptorToSecurityDescriptor')
+    expect(source).toContain('[HitMuseAclNative]::SetFileSecurity')
+    expect(source).not.toContain("'icacls.exe'")
+    expect(source).not.toContain('Set-Acl')
+  })
+
   it('preserves drive and UNC volume roots during path normalization', async () => {
     const source = await readFile(scriptPath, 'utf8')
     const functionSource = source.slice(0, source.lastIndexOf('\ntry {'))

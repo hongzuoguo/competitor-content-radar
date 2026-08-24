@@ -37,11 +37,12 @@ jobs:
       - name: Run ordinary Node tests
         shell: pwsh
         run: |
-          $testTemp = Join-Path $env:RUNNER_TEMP 'node-tests'
+          $testTemp = Join-Path $env:SystemDrive "hitmuse-tests-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           New-Item -ItemType Directory -Path $testTemp -ErrorAction Stop | Out-Null
           $env:TEMP = $testTemp
           $env:TMP = $testTemp
-          npm test -- --exclude tests/services/model-source-packaged.integration.test.ts
+          $env:PYTHONUTF8 = '1'
+          npm test -- --exclude tests/services/model-source-packaged.integration.test.ts --maxWorkers 2
       - name: Type check
         run: npm run typecheck
       - name: Run disjoint public candidate and Gitleaks gates

@@ -1,13 +1,11 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveUserDataOverride } from '../../src/main/user-data-override'
 
-const ISOLATED_TEST_DATA_ROOT = 'E:\\10500\\radar-test'
-
 async function withFixture(test: (fixture: string) => Promise<void>): Promise<void> {
-  await mkdir(ISOLATED_TEST_DATA_ROOT, { recursive: true })
-  const fixture = await mkdtemp(join(ISOLATED_TEST_DATA_ROOT, 'user-data-override-'))
+  const fixture = await mkdtemp(join(tmpdir(), 'user-data-override-'))
   try {
     await test(fixture)
   } finally {
@@ -35,7 +33,7 @@ describe('resolveUserDataOverride', () => {
   })
 
   it('accepts the exact smoke user-data directory under an explicit ordinary test root', async () => {
-    const testRoot = await mkdtemp(join('E:\\10500', 'hitmuse-explicit-test-root-'))
+    const testRoot = await mkdtemp(join(tmpdir(), 'hitmuse-explicit-test-root-'))
     const smokeRoot = join(testRoot, 'smoke-ci')
     const userData = join(smokeRoot, 'user-data')
     try {
@@ -51,7 +49,7 @@ describe('resolveUserDataOverride', () => {
   })
 
   it('rejects an explicit smoke test root that is missing or not a directory', async () => {
-    const fixture = await mkdtemp(join('E:\\10500', 'hitmuse-invalid-test-root-'))
+    const fixture = await mkdtemp(join(tmpdir(), 'hitmuse-invalid-test-root-'))
     const missingRoot = join(fixture, 'missing')
     const fileRoot = join(fixture, 'file')
     await writeFile(fileRoot, 'not a directory')
@@ -75,15 +73,18 @@ describe('resolveUserDataOverride', () => {
 
   it('allows ordinary existing directories and descendants that do not exist yet', async () => {
     await withFixture(async (fixture) => {
-      const existing = join(fixture, 'existing')
-      const notCreatedYet = join(existing, 'not-created-yet')
-      await mkdir(existing)
+      const existing = join(fixture, 'smoke-existing', 'user-data')
+      const notCreatedYet = join(fixture, 'smoke-not-created', 'user-data')
+      await mkdir(existing, { recursive: true })
+      await mkdir(join(fixture, 'smoke-not-created'))
 
       expect(resolveUserDataOverride([
         `--hitmuse-user-data-dir=${existing}`,
+        `--hitmuse-smoke-test-root=${fixture}`,
       ])).toBe(existing)
       expect(resolveUserDataOverride([
         `--hitmuse-user-data-dir=${notCreatedYet}`,
+        `--hitmuse-smoke-test-root=${fixture}`,
       ])).toBe(notCreatedYet)
     })
   })
@@ -91,12 +92,13 @@ describe('resolveUserDataOverride', () => {
   it('rejects a junction used as an existing ancestor', async () => {
     await withFixture(async (fixture) => {
       const target = join(fixture, 'target')
-      const junction = join(fixture, 'ancestor-junction')
-      await mkdir(target)
+      const junction = join(fixture, 'smoke-ancestor-junction')
+      await mkdir(join(target, 'user-data'), { recursive: true })
       await symlink(target, junction, 'junction')
 
       expect(() => resolveUserDataOverride([
-        `--hitmuse-user-data-dir=${join(junction, 'profile')}`,
+        `--hitmuse-user-data-dir=${join(junction, 'user-data')}`,
+        `--hitmuse-smoke-test-root=${fixture}`,
       ])).toThrow('HITMUSE_USER_DATA_REPARSE_POINT_NOT_ALLOWED')
     })
   })
@@ -104,34 +106,41 @@ describe('resolveUserDataOverride', () => {
   it('rejects a junction used as the override target', async () => {
     await withFixture(async (fixture) => {
       const target = join(fixture, 'target')
-      const junction = join(fixture, 'target-junction')
+      const smokeRoot = join(fixture, 'smoke-target-junction')
+      const junction = join(smokeRoot, 'user-data')
       await mkdir(target)
+      await mkdir(smokeRoot)
       await symlink(target, junction, 'junction')
 
       expect(() => resolveUserDataOverride([
         `--hitmuse-user-data-dir=${junction}`,
+        `--hitmuse-smoke-test-root=${fixture}`,
       ])).toThrow('HITMUSE_USER_DATA_REPARSE_POINT_NOT_ALLOWED')
     })
   })
 
   it('rejects a dangling junction used as an existing ancestor', async () => {
     await withFixture(async (fixture) => {
-      const junction = join(fixture, 'dangling-ancestor-junction')
+      const junction = join(fixture, 'smoke-dangling-ancestor-junction')
       await symlink(join(fixture, 'missing-target'), junction, 'junction')
 
       expect(() => resolveUserDataOverride([
-        `--hitmuse-user-data-dir=${join(junction, 'profile')}`,
+        `--hitmuse-user-data-dir=${join(junction, 'user-data')}`,
+        `--hitmuse-smoke-test-root=${fixture}`,
       ])).toThrow('HITMUSE_USER_DATA_REPARSE_POINT_NOT_ALLOWED')
     })
   })
 
   it('rejects a dangling junction used as the override target', async () => {
     await withFixture(async (fixture) => {
-      const junction = join(fixture, 'dangling-target-junction')
+      const smokeRoot = join(fixture, 'smoke-dangling-target-junction')
+      const junction = join(smokeRoot, 'user-data')
+      await mkdir(smokeRoot)
       await symlink(join(fixture, 'missing-target'), junction, 'junction')
 
       expect(() => resolveUserDataOverride([
         `--hitmuse-user-data-dir=${junction}`,
+        `--hitmuse-smoke-test-root=${fixture}`,
       ])).toThrow('HITMUSE_USER_DATA_REPARSE_POINT_NOT_ALLOWED')
     })
   })

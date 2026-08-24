@@ -161,6 +161,8 @@ using System.Runtime.InteropServices;
 public static class HitMuseAclNative {
  [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern uint GetNamedSecurityInfo(string name,uint objectType,uint securityInfo,out IntPtr owner,out IntPtr group,out IntPtr dacl,out IntPtr sacl,out IntPtr securityDescriptor);
  [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)][return:MarshalAs(UnmanagedType.Bool)] public static extern bool ConvertSecurityDescriptorToStringSecurityDescriptor(IntPtr securityDescriptor,uint revision,uint securityInfo,out IntPtr text,out uint textLength);
+ [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true,EntryPoint="ConvertStringSecurityDescriptorToSecurityDescriptorW")][return:MarshalAs(UnmanagedType.Bool)] public static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string text,uint revision,out IntPtr securityDescriptor,out uint securityDescriptorSize);
+ [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true,EntryPoint="SetFileSecurityW")][return:MarshalAs(UnmanagedType.Bool)] public static extern bool SetFileSecurity(string name,uint securityInfo,IntPtr securityDescriptor);
  [DllImport("kernel32.dll",SetLastError=true)] public static extern IntPtr LocalFree(IntPtr memory);
 }
 '@
@@ -265,16 +267,15 @@ function Initialize-ToolRoot([string]$ToolDirectory) {
     return
   }
   New-Item -ItemType Directory -Path $ToolDirectory -Force | Out-Null
-  $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-  $icacls = Join-Path ([System.Environment]::SystemDirectory) 'icacls.exe'
-  & $icacls $ToolDirectory '/reset' | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
-  & $icacls $ToolDirectory '/inheritance:r' | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
-  & $icacls $ToolDirectory '/grant:r' "${identity}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
-  & $icacls $ToolDirectory '/setowner' $identity | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
+  $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $descriptor = [IntPtr]::Zero
+  $descriptorSize = [uint32]0
+  try {
+    if (-not [HitMuseAclNative]::ConvertStringSecurityDescriptorToSecurityDescriptor("O:${sid}D:P(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;FA;;;$sid)", 1, [ref]$descriptor, [ref]$descriptorSize)) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
+    if (-not [HitMuseAclNative]::SetFileSecurity($ToolDirectory, [uint32]4, $descriptor)) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
+  } finally {
+    if ($descriptor -ne [IntPtr]::Zero) { [HitMuseAclNative]::LocalFree($descriptor) | Out-Null }
+  }
   Assert-ToolRootAcl $ToolDirectory
 }
 
@@ -631,7 +632,7 @@ paths = [
   $failureReason = if ($failureMessage -match '^PUBLIC_SECRET_SCAN_[A-Z0-9_-]+$') {
     $failureMessage
   } else {
-    "PUBLIC_SECRET_SCAN_$stage"
+    "PUBLIC_SECRET_SCAN_UNEXPECTED_$($_.Exception.GetType().Name.ToUpperInvariant())"
   }
   if ($reportValidated -and $safeFailureReport) {
     [void](Write-NewReportSummary $safeFailureReport ([ordered]@{
