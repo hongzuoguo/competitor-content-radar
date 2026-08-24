@@ -213,7 +213,7 @@ export function auditReparsePoints(request, options = {}) {
     input: JSON.stringify(request),
     stdio: ['pipe', 'ignore', 'ignore'],
     windowsHide: true,
-    timeout: 30_000,
+    timeout: 120_000,
     maxBuffer: 1_024
   })
   verifyPowerShellIdentity(powerShell)

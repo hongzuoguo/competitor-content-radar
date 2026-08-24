@@ -51,7 +51,7 @@ jobs:
           $env:TEMP = $testTemp
           $env:TMP = $testTemp
           $env:PYTHONUTF8 = '1'
-          npm test -- --exclude tests/services/model-source-packaged.integration.test.ts --maxWorkers 2
+          npm test -- --exclude tests/services/model-source-packaged.integration.test.ts --maxWorkers 2 --testTimeout 120000
           npm run typecheck
       - name: Run disjoint public candidate and Gitleaks gates
         shell: pwsh

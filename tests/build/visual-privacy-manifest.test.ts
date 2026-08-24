@@ -370,6 +370,7 @@ describe('visual privacy manifest', () => {
     expect(source).toContain("join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')")
     expect(source).toContain('$json = [Console]::In.ReadToEnd()')
     expect(source).toContain('Get-ChildItem -LiteralPath $current.Path -Force -ErrorAction Stop | ForEach-Object')
+    expect(source).toContain('timeout: 120_000')
     expect(source).not.toContain('$entries = Get-ChildItem')
     expect(source).toContain('opendirSync')
     expect(source).not.toContain('readdirSync')
