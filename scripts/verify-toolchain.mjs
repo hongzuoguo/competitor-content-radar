@@ -73,10 +73,7 @@ export function verifyToolchainSnapshot({ contract, actual, lockedPackages }) {
   verifyPipToolsContract(contract.pipTools)
   for (const [field, label] of fields) {
     const expected = contract[field]
-    const matches = typeof expected === 'string' && expected.endsWith('.x')
-      ? actual?.[field]?.startsWith(expected.slice(0, -1))
-      : actual?.[field] === expected
-    if (!matches) {
+    if (!matchesVersion(actual?.[field], expected)) {
       throw new Error(`TOOLCHAIN_${label}_MISMATCH:expected=${contract[field]}:actual=${actual?.[field] ?? 'missing'}`)
     }
   }
@@ -89,6 +86,19 @@ export function verifyToolchainSnapshot({ contract, actual, lockedPackages }) {
   return { ...actual, lockedPackages: { ...lockedPackages } }
 }
 
+function matchesVersion(actual, expected) {
+  return typeof expected === 'string' && expected.endsWith('.x')
+    ? actual?.startsWith(expected.slice(0, -1))
+    : actual === expected
+}
+
+export function selectCompatibleVersion(names, expected) {
+  return names
+    .filter((name) => /^\d+(?:\.\d+)+$/.test(name) && matchesVersion(name, expected))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+    .at(-1)
+}
+
 function commandVersion(file, args, pattern, code) {
   const result = spawnSync(file, args, { encoding: 'utf8', windowsHide: true })
   if (result.status !== 0) throw new Error(`${code}_UNAVAILABLE`)
@@ -97,16 +107,19 @@ function commandVersion(file, args, pattern, code) {
   return value
 }
 
-async function newestDirectory(path, code) {
+async function compatibleDirectory(path, expected, code) {
   let entries
   try {
     entries = await readdir(path, { withFileTypes: true })
   } catch {
     throw new Error(`${code}_UNAVAILABLE`)
   }
-  const names = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
-  if (names.length === 0) throw new Error(`${code}_UNAVAILABLE`)
-  return names.at(-1)
+  const selected = selectCompatibleVersion(
+    entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
+    expected
+  )
+  if (!selected) throw new Error(`${code}_UNAVAILABLE`)
+  return selected
 }
 
 async function readLockedPackages(root, names) {
@@ -130,8 +143,8 @@ async function collectActualToolchain(root, contract) {
   if (!installation?.installationPath || !installation?.installationVersion) {
     throw new Error('TOOLCHAIN_VISUAL_STUDIO_UNAVAILABLE')
   }
-  const msvc = await newestDirectory(join(installation.installationPath, 'VC', 'Tools', 'MSVC'), 'TOOLCHAIN_MSVC')
-  const windowsSdk = await newestDirectory(join(programFilesX86, 'Windows Kits', '10', 'Include'), 'TOOLCHAIN_WINDOWS_SDK')
+  const msvc = await compatibleDirectory(join(installation.installationPath, 'VC', 'Tools', 'MSVC'), contract.msvc, 'TOOLCHAIN_MSVC')
+  const windowsSdk = await compatibleDirectory(join(programFilesX86, 'Windows Kits', '10', 'Include'), contract.windowsSdk, 'TOOLCHAIN_WINDOWS_SDK')
   return {
     platform: process.platform,
     arch: process.arch,

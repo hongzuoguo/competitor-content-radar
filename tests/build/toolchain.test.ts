@@ -133,6 +133,19 @@ describe('pinned build toolchain', () => {
     })).toEqual({ ...expectedActual, lockedPackages: contract.lockedPackages })
   })
 
+  it('selects only a contract-compatible version directory from mutable runner images', async () => {
+    const { verifier } = await loadContractAndVerifier()
+
+    expect(verifier.selectCompatibleVersion(
+      ['10.0.22621.0', '10.0.26100.0', 'wdf'],
+      '10.0.26100.0'
+    )).toBe('10.0.26100.0')
+    expect(verifier.selectCompatibleVersion(
+      ['14.44.35211', '14.51.36247'],
+      '14.44.x'
+    )).toBe('14.44.35211')
+  })
+
   it.each([
     ['node', '24.14.0', 'TOOLCHAIN_NODE_MISMATCH'],
     ['npm', '11.12.0', 'TOOLCHAIN_NPM_MISMATCH'],
