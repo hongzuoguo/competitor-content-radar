@@ -286,6 +286,7 @@ describe('public privacy gate', () => {
     const source = await readFile(scriptPath, 'utf8')
     expect(source).toContain('ConvertStringSecurityDescriptorToSecurityDescriptor')
     expect(source).toContain('[HitMuseAclNative]::SetFileSecurity')
+    expect(source).toContain("'^O:(?:' + [regex]::Escape($sid) + '|BA)D:")
     expect(source).not.toContain("'icacls.exe'")
     expect(source).not.toContain('Set-Acl')
   })

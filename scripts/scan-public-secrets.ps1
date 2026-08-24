@@ -251,7 +251,7 @@ function Get-Sha256([string]$Path) {
 function Assert-ToolRootAcl([string]$ToolDirectory) {
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   $sddl = Get-ToolRootSddl $ToolDirectory
-  $match = [regex]::Match($sddl, ('^O:' + [regex]::Escape($sid) + 'D:(?:P|PAI)(?<aces>(?:\([^)]*\))+)\z'))
+  $match = [regex]::Match($sddl, ('^O:(?:' + [regex]::Escape($sid) + '|BA)D:(?:P|PAI)(?<aces>(?:\([^)]*\))+)\z'))
   if (-not $match.Success) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
   $actual = @([regex]::Matches($match.Groups['aces'].Value, '\((?<ace>[^)]*)\)') | ForEach-Object { $_.Groups['ace'].Value })
   $expected = @('A;OICI;FA;;;BA', 'A;OICI;FA;;;SY', "A;OICI;FA;;;$sid")
