@@ -251,12 +251,25 @@ function Get-Sha256([string]$Path) {
 function Assert-ToolRootAcl([string]$ToolDirectory) {
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   $sddl = Get-ToolRootSddl $ToolDirectory
-  $match = [regex]::Match($sddl, ('^O:(?:' + [regex]::Escape($sid) + '|BA)D:(?:P|PAI)(?<aces>(?:\([^)]*\))+)\z'))
-  if (-not $match.Success) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
-  $actual = @([regex]::Matches($match.Groups['aces'].Value, '\((?<ace>[^)]*)\)') | ForEach-Object { $_.Groups['ace'].Value })
-  $expected = @('A;OICI;FA;;;BA', 'A;OICI;FA;;;SY', "A;OICI;FA;;;$sid")
-  if ($actual.Count -ne $expected.Count) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
-  foreach ($ace in $expected) { if (@($actual | Where-Object { $_ -eq $ace }).Count -ne 1) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' } }
+  $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($sddl)
+  $trustedOwners = @($sid, 'S-1-5-32-544')
+  if ($descriptor.Owner.Value -notin $trustedOwners) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
+  $protected = [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected
+  if (($descriptor.ControlFlags -band $protected) -eq 0) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
+  $expectedSids = @('S-1-5-32-544', 'S-1-5-18', $sid)
+  $expectedFlags = [Security.AccessControl.AceFlags]([int][Security.AccessControl.AceFlags]::ObjectInherit -bor [int][Security.AccessControl.AceFlags]::ContainerInherit)
+  $expectedMask = [int][Security.AccessControl.FileSystemRights]::FullControl
+  $actual = @($descriptor.DiscretionaryAcl)
+  if ($actual.Count -ne $expectedSids.Count) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
+  foreach ($expectedSid in $expectedSids) {
+    $matches = @($actual | Where-Object {
+      $_.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and
+      $_.AceFlags -eq $expectedFlags -and
+      $_.AccessMask -eq $expectedMask -and
+      $_.SecurityIdentifier.Value -eq $expectedSid
+    })
+    if ($matches.Count -ne 1) { throw 'PUBLIC_SECRET_SCAN_TOOL_CACHE_ACL_INVALID' }
+  }
 }
 
 function Initialize-ToolRoot([string]$ToolDirectory) {
