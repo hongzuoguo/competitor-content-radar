@@ -627,8 +627,17 @@ paths = [
     if ($null -ne $toolLock) { $toolLock.Dispose() }
   }
 } catch {
+  $failureMessage = [string]$_.Exception.Message
+  $failureReason = if ($failureMessage -match '^PUBLIC_SECRET_SCAN_[A-Z0-9_-]+$') {
+    $failureMessage
+  } else {
+    "PUBLIC_SECRET_SCAN_$stage"
+  }
   if ($reportValidated -and $safeFailureReport) {
-    [void](Write-NewReportSummary $safeFailureReport ([ordered]@{ error = "PUBLIC_SECRET_SCAN_$stage" } | ConvertTo-Json))
+    [void](Write-NewReportSummary $safeFailureReport ([ordered]@{
+      error = "PUBLIC_SECRET_SCAN_$stage"
+      reason = $failureReason
+    } | ConvertTo-Json))
   }
   Write-Output 'PUBLIC_SECRET_SCAN_FAILED:0'
 } finally {

@@ -548,7 +548,10 @@ describe('public privacy gate', () => {
     expect(second.status).not.toBe(0)
     expect(second.stdout.trim()).toBe('PUBLIC_SECRET_SCAN_FAILED:0')
     expect(second.stderr.trim()).toBe('')
-    expect((await readSafeSummary(secondReport)).summary).toEqual({ error: 'PUBLIC_SECRET_SCAN_tool' })
+    expect((await readSafeSummary(secondReport)).summary).toEqual({
+      error: 'PUBLIC_SECRET_SCAN_tool',
+      reason: 'PUBLIC_SECRET_SCAN_TOOL_ARCHIVE_INVALID'
+    })
   }, 180_000)
 
   it('rejects a zip entry which escapes the extraction staging directory', async () => {
@@ -800,7 +803,10 @@ describe('public privacy gate', () => {
     expect(reparse.stdout.trim()).toMatch(/^PUBLIC_SECRET_SCAN_FAILED:\d+$/)
     expect(reparse.stderr.trim()).toBe('')
     const { summary } = await readSafeSummary(failureReport)
-    expect(summary).toEqual({ error: 'PUBLIC_SECRET_SCAN_paths' })
+    expect(summary).toEqual({
+      error: 'PUBLIC_SECRET_SCAN_paths',
+      reason: 'PUBLIC_SECRET_SCAN_PATH_OVERLAP'
+    })
   })
 
   it.each(['candidate', 'repository', 'release', 'report', 'tool'] as const)('rejects a reparse-point %s root before scanning', async (kind) => {
@@ -837,7 +843,10 @@ describe('public privacy gate', () => {
     } else {
       const { summaryText, summary } = await readSafeSummary(roots.report)
       expect(summaryText).not.toContain('HITMUSE_SENTINEL_')
-      expect(summary).toEqual({ error: 'PUBLIC_SECRET_SCAN_paths' })
+      expect(summary).toEqual({
+        error: 'PUBLIC_SECRET_SCAN_paths',
+        reason: 'PUBLIC_SECRET_SCAN_REPARSE_POINT'
+      })
     }
   })
 
